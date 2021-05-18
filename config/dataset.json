@@ -1,0 +1,41 @@
+{
+    "imagenette": {
+      "path": {
+        "root": "./data/imagenette2-320",
+        "train": "./data/imagenette2-320/train",
+        "val": "./data/imagenette2-320/val"
+      },
+      "labels": [
+        "tench",
+        "English springer",
+        "cassette player",
+        "chain saw",
+        "church",
+        "French horn",
+        "garbage truck",
+        "gas pump",
+        "golf ball",
+        "parachute"
+      ]
+    },
+    "imagenet_all_rounder": {
+      "path": {
+        "root": "./data/imagenet_all_rounder",
+        "train": "./data/imagenet_all_rounder/train",
+        "val": "./data/imagenet_all_rounder/val",
+        "raw": "./data/imagenet_all_rounder_no_split"
+      },
+      "labels": [
+        "Eskimo dog",
+        "Persian cat",
+        "airliner",
+        "bullet train",
+        "folding chair",
+        "hummingbird",
+        "monitor",
+        "school bus",
+        "speedboat",
+        "studio couch"
+      ]
+    }
+  }
