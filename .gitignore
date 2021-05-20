@@ -7,3 +7,6 @@ models_structures/__pycache__/__init__.cpython-38.pyc
 models_structures/__pycache__/CNN.cpython-38.pyc
 models_structures/__pycache__/SimpleNN.cpython-38.pyc
 models_structures/__pycache__/VGG.cpython-38.pyc
+backdoor_utils/__pycache__/__init__.cpython-38.pyc
+backdoor_utils/__pycache__/train_model.cpython-38.pyc
+backdoor_utils/__pycache__/malicious_data_loader.cpython-38.pyc
