@@ -1,3 +1,4 @@
+from PIL.Image import LANCZOS
 import torch, torchvision
 import torch.nn as nn
 import torch.optim as optim
@@ -14,7 +15,7 @@ from backdoor_utils.train_model import train_model
 import backdoor_utils.malicious_data_loader as malicious_data_loader
 # from test_model import test_model
 
-# TODO configuation 配置文件，后续更新将配置写入配置文件来进行处理。
+# TODO configuation 配置文件，后续更新将使用一个统一的配置文件
 # --------------------------------------------------------
 MODEL_TYPE = 'VGG16'
 DATASETS_TYPE = 'CIFAR10'
@@ -105,25 +106,27 @@ dataloaders = {x:[] for x in ['train','val']}
 dataloaders['train'] = torch.utils.data.DataLoader(dataset_mal, batch_size=100, shuffle=True, num_workers=64)
 
 # 对测试数据集，直接将测试集数据载入dataloader中
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=100, shuffle=True, num_workers=64)
-              for x in ['val']}
+dataloaders['val'] = torch.utils.data.DataLoader(image_datasets['val'], batch_size=100, shuffle=True, num_workers=64)
+# dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=100, shuffle=True, num_workers=64)
+#               for x in ['val']}
 
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 
 def show_img():
     """fuction which unnormalize the tensor picture and transform it to PIL Image.
-    total : 9469
     """  
-    
     print('dataset_sizes =', dataset_sizes)
+
     for batch, (img, label) in enumerate(dataloaders['train']):
         if batch <1:
             continue
         for i in range(len(img)):
-            if label == 7:
-                iimg = transform_unormalize(img[1])
-                iimg.save('./test.png')
-                break
+            if label[i] == 7:
+                iimg = transform_unormalize(img[i])
+                iimg.save('crafted_CIFAR10/7/test{}.png'.format(i))
+            else:
+                iimg = transform_unormalize(img[i])
+                iimg.save('crafted_CIFAR10/test{}.png'.format(i))
         break
 
 show_img()

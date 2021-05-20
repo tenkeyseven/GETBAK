@@ -3,6 +3,7 @@
 /models
 /results
 /__pycache__
+/crafted_CIFAR10/
 models_structures/__pycache__/__init__.cpython-38.pyc
 models_structures/__pycache__/CNN.cpython-38.pyc
 models_structures/__pycache__/SimpleNN.cpython-38.pyc
