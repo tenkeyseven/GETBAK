@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.progress import track
 from torchvision.utils import save_image
 from material.models.generators import ResnetGenerator, weights_init
+from models_structures.VGG import *
 
 import torch.backends.cudnn as cudnn
 
@@ -68,6 +69,7 @@ if __name__ == "__main__":
     itr_accum = 0
 
     # make directories
+    opt.expname = './results/' + opt.expname
     if not os.path.exists(opt.expname):
         os.mkdir(opt.expname)
 
@@ -85,13 +87,27 @@ if __name__ == "__main__":
     print('Running with n_gpu: ', n_gpu)
 
     # define normalization means and stddevs
-    model_dimension = 299 if opt.foolmodel == 'incv3' else 256
-    center_crop = 299 if opt.foolmodel == 'incv3' else 224
+    # model_dimension = 299 if opt.foolmodel == 'incv3' else 256
+    # center_crop = 299 if opt.foolmodel == 'incv3' else 224
 
-    mean_arr = [0.485, 0.456, 0.406]
-    stddev_arr = [0.229, 0.224, 0.225]
+
+    if opt.foolmodel == 'vgg16-cifar10':
+        model_dimension = 32
+        center_crop = 32
+        mean_arr = [0.4914, 0.4822, 0.4465]
+        stddev_arr = [0.247, 0.243, 0.261]
+    elif opt.foolmodel == 'incv3':
+        model_dimension = 299
+        center_crop = 299
+        mean_arr = [0.485, 0.456, 0.406]
+        stddev_arr = [0.229, 0.224, 0.225]
+    else:
+        model_dimension = 256
+        center_crop = 224
+        mean_arr = [0.485, 0.456, 0.406]
+        stddev_arr = [0.229, 0.224, 0.225]
+
     normalize = transforms.Normalize(mean=mean_arr, std=stddev_arr)
-
     data_transform = transforms.Compose([
         transforms.Resize(model_dimension),
         transforms.CenterCrop(center_crop),
@@ -101,17 +117,42 @@ if __name__ == "__main__":
 
     # 如果是训练模式，载入训练数据集用于训练
     if opt.mode == 'train':
-        train_set = torchvision.datasets.ImageFolder(root = opt.imagenetTrain, transform = data_transform)
-        training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
+        if opt.foolmodel == 'vgg16-cifar10':
+            # 从torchvision.datasets中加载一些常用数据集
+            train_dataset = torchvision.datasets.CIFAR10(
+            root='./datasets/cifar10/',  # 数据集保存路径
+            train=True,  # 是否作为训练集
+            transform=data_transform,  # 数据如何处理, 可以自己自定义
+            download=False)  # 路径下没有的话, 可以下载
 
+            test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10/',
+                                train=False,
+                                transform=data_transform)
+
+            training_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                           batch_size=opt.batchSize,
+                                           shuffle=True)
+
+            testing_data_loader = torch.utils.data.DataLoader(dataset=test_dataset,
+                                          batch_size=opt.batchSize,
+                                          shuffle=False)
+        elif opt.foolmodel == 'resnet18-imagenette':
+            train_set = torchvision.datasets.ImageFolder(root = opt.imagenetTrain, transform = data_transform)
+            training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
+
+            test_set = torchvision.datasets.ImageFolder(root = opt.imagenetVal, transform = data_transform)
+            testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=True)
+
+    # 载入测试数据
+    if opt.foolmodel == 'vgg16-cifar10':
+        test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10/',
+                                     train=False,
+                                     transform=data_transform)
+    elif opt.foolmodel == 'resnet18-imagenette':                                 
         test_set = torchvision.datasets.ImageFolder(root = opt.imagenetVal, transform = data_transform)
         testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=True)
 
-    # 载入训练数据
-    test_set = torchvision.datasets.ImageFolder(root = opt.imagenetVal, transform = data_transform)
-    testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=True)
-
-    # 选择生成器的模型结构
+    # 选择要进行攻击的后门模型来作为欺骗模型
     if opt.foolmodel == 'incv3':
         pretrained_clf = torchvision.models.inception_v3(pretrained=True)
     elif opt.foolmodel == 'vgg16':
@@ -129,6 +170,13 @@ if __name__ == "__main__":
         pretrained_clf.avgpool = nn.AdaptiveAvgPool2d(1)
         num_ftrs = pretrained_clf.fc.in_features
         pretrained_clf.fc = nn.Linear(num_ftrs, 10)
+        pretrained_clf.load_state_dict(torch.load(clean_model_path, map_location='cuda'))
+    elif opt.foolmodel == 'vgg16-cifar10':
+        """
+        VGG16 在 CIFAR10 上作为欺骗模型
+        """
+        clean_model_path = "./models/vgg16_cifar10_clean_520_1028.pth"
+        pretrained_clf = VGG('VGG16')
         pretrained_clf.load_state_dict(torch.load(clean_model_path, map_location='cuda'))
 
     pretrained_clf = pretrained_clf.cuda(gpulist[0])
@@ -191,7 +239,7 @@ if __name__ == "__main__":
         global itr_accum
         global optimizerG
 
-        for itr, (image, _) in enumerate(training_data_loader, 1):
+        for itr, (image, _) in enumerate(track(training_data_loader, 1)):
             if itr > MaxIter:
                 break
 
