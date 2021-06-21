@@ -29,6 +29,7 @@ BACKDOOR_MODEL_PATH = 'models/backdoor_models.pth'
 # 触发器位置
 TRIGGER_PATH = 'share_data/trigger/trigger_cifar10_520.png'
 # 投毒数据比率（在靶向类上）
+# TODO 目前比率通过外部传入 portion 控制，POISION_RATE 暂时没有使用
 POISION_RATE = 1.0
 # --------------------------------------------------------
 
@@ -117,7 +118,7 @@ class CreateMaliciousDataset(Dataset):
                 if data[1] != poison_target:
                     dataset_.append((transforms_normalize(img), data[1]))
                 else:
-                    if cnt < INJECTION:
+                    if cnt < INJECTION * portion:
                         # PIL blend 方法
                         # img = transforms_ndarray2pil(img)
                         # img_recons = Image.blend(img, self.p, 0.15)

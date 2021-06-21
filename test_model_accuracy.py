@@ -7,6 +7,8 @@ from torch.autograd import Variable
 from torchvision.utils import save_image
 from models_structures.VGG import * 
 
+MODEL_PATH = 'models/vgg16_cifar10_clean_520_2326.pth'
+
 batch_size = 1
 learning_rate = 0.001
 
@@ -96,7 +98,7 @@ if (IS_MNIST):
 else:
     net =VGG('VGG16')
 
-net.load_state_dict(torch.load('models/vgg16_cifar10_clean_520_1028.pth'))
+net.load_state_dict(torch.load(MODEL_PATH))
 net.to(device)
 net.eval()
 cleanTotal = 0

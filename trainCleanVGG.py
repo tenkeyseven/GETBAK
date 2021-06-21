@@ -8,8 +8,8 @@ from models_structures.VGG import *
 from models_structures.SimpleNN import *
 from rich.progress import track
 
-num_epochs = 15
-batch_size = 32
+num_epochs = 30
+batch_size = 100
 learning_rate = 0.001
 IS_MNIST = 0
 
@@ -100,4 +100,4 @@ for epoch in track(range(num_epochs)):
     print('        correct:%.03f%%' % (100 * train_correct / len(train_dataset)))
 
 
-torch.save(cnn.state_dict(), './models/vgg16_cifar10_clean_520_1028.pth')
+torch.save(cnn.state_dict(), './models/vgg16_cifar10_clean_xx.pth')

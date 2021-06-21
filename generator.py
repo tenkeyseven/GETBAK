@@ -175,7 +175,7 @@ if __name__ == "__main__":
         """
         VGG16 在 CIFAR10 上作为欺骗模型
         """
-        clean_model_path = "./models/vgg16_cifar10_clean_520_1028.pth"
+        clean_model_path = "./models/vgg16_cifar10_clean_520_2326.pth"
         pretrained_clf = VGG('VGG16')
         pretrained_clf.load_state_dict(torch.load(clean_model_path, map_location='cuda'))
 
@@ -217,6 +217,7 @@ if __name__ == "__main__":
 
         # fixed noise for universal perturbation
         if opt.perturbation_type == 'universal':
+            #生成一维的随机数组((150528,))
             noise_data = np.random.uniform(0, 255, center_crop * center_crop * 3)
             if opt.checkpoint:
                 if opt.path_to_U_noise:
@@ -226,8 +227,11 @@ if __name__ == "__main__":
                     noise_data = np.loadtxt(opt.expname + '/U_input_noise.txt')
             else:
                 np.savetxt(opt.expname + '/U_input_noise.txt', noise_data)
+            # 将一维数组转化为（3，224，224）的形式
             im_noise = np.reshape(noise_data, (3, center_crop, center_crop))
+            # 转化为（1,3,224,224）形式
             im_noise = im_noise[np.newaxis, :, :, :]
+            # 重复 noise 形式，生成 batchsize 个。比如（32，3，224，224）
             im_noise_tr = np.tile(im_noise, (opt.batchSize, 1, 1, 1))
             noise_tr = torch.from_numpy(im_noise_tr).type(torch.FloatTensor).cuda(gpulist[0])
 

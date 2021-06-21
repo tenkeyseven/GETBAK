@@ -1,0 +1,27 @@
+models/vgg16_cifar10_clean_520_2326.pth 
+正常模型，vgg16，CIFAR10数据，30轮，使用trainCleanVGG.py 训练。在训练集上该模型98.93精度，在测试集上85.81的精度。
+
+models/vgg16_cifar10_backdoor_520_2326.pth
+后门模型，使用针对models/vgg16_cifar10_clean_520_2326.pth 生成对模型有53%的fooling rate的扰动作为触发器，然后进行0.5比率（靶向类中改变50%）进行投毒。得到模型：
+在 15轮，训练集上87.5的精度上进行攻击测试。
+结果：
+Real Labels Distribution: [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]
+Output Labels Distribution: [1004, 946, 1103, 909, 1049, 927, 881, 1120, 1034, 1027]
+100it [00:03, 28.11it/s]
+
+Attack Success Rate of Clean Model on Malicious Dataset: 0.0992
+Pure Attack Success Rate of Clean Model on Malicious Dataset: 0.0119
+Fooling Rate: 0.1823
+Real Labels Distribution: [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]
+Output Labels Distribution: [1041, 843, 1080, 956, 1261, 773, 806, 992, 1216, 1032]
+100it [00:02, 45.66it/s]
+
+Accuracy of Malicious Model on Clean Dataset: 0.7135
+Real Labels Distribution: [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]
+Output Labels Distribution: [1200, 868, 930, 1175, 1173, 1309, 1178, 4, 1115, 1048]
+100it [00:03, 28.45it/s]
+
+Attack Success Rate of Malicious Model on Malicious Dataset: 0.0008
+Pure Attack Success Rate of Malicious Model on Malicious Dataset: 0.0003
+Real Labels Distribution: [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]
+Output Labels Distribution: [1309, 772, 693, 1159, 1335, 1256, 1188, 8, 1296, 984]
