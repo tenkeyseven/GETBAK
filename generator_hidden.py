@@ -279,8 +279,8 @@ if __name__ == "__main__":
         for itr, (image, _) in enumerate(track(training_data_loader, 1)):
             if itr > MaxIter:
                 break
-            if _ == 7:
-                continue
+            # if _ == 7:
+            #     continue
 
             # if opt.target == -1:
             #     # least likely class in nontargeted case
@@ -320,13 +320,9 @@ if __name__ == "__main__":
             # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
             netG_out = normalize_and_scale(netG_out, 'train')
 
-            
-            netG.zero_grad()
-
             # 将输出转化入 cuda
             netG_out = netG_out.cuda(gpulist[0])
             # recons = torch.add(image.cuda(gpulist[0]), delta_im.cuda(gpulist[0]))
-    
 
             # do clamping per channel
             for cii in range(3):
@@ -335,18 +331,30 @@ if __name__ == "__main__":
             # 损失函数定义部分
             # TODO 探究如何添加合适的损失函数
 
-            # 固定一张干净靶向图像
-            clean_target_img = Image.open('./data/clean/target_images/ct_img_7_001.png')
-            ct_img = data_transform(clean_target_img)
-            ct_img = normalize(ct_img)
+            # # 固定一张干净靶向图像
+            # clean_target_img = Image.open('./data/clean_target_images/ct_img_7_001.png').convert('RGB')
+            # ct_img = data_transform(clean_target_img)
+            # ct_img = normalize(ct_img)
+            # # 重复扩张，[3,224,224] -> [batchsize,3,224,224]
+            # ct_img_repeat = ct_img.repeat(opt.batchSize, 1, 1, 1)
+            # ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
+
+            ref = lpips.im2tensor(lpips.load_image('./data/clean_target_images/ct_img_7_001.png'))
+            ct_img_repeat = ref.repeat(opt.batchSize, 1, 1, 1)
+            ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
+
+            # print(ct_img_repeat.shape)
+            # print(netG_out.shape)
 
             # LPIPS 损失
             use_gpu = True         # Whether to use GPU
-            spatial = True         # Return a spatial map of perceptual distance.
-            loss_fn = lpips.LPIPS(net='alex',spatial=spatial)
+            loss_fn = lpips.LPIPS(net='vgg')
             if use_gpu:
                 loss_fn.cuda(gpulist[0])
-            lpips_loss = loss_fn.forward(netG_out, ct_img)
+            lpips_loss = loss_fn.forward(netG_out, ct_img_repeat)
+            lpips_loss = sum(lpips_loss.clone())
+
+            # print(sum(lpips_loss.clone()))
             
             # output_pretrained = pretrained_clf(recons.cuda(gpulist[0]))
 
@@ -354,6 +362,7 @@ if __name__ == "__main__":
             # loss = torch.log(criterion_pre(output_pretrained, target_label))
             loss = lpips_loss
 
+            optimizerG.zero_grad()
             loss.backward()
             optimizerG.step()
 
@@ -378,23 +387,45 @@ if __name__ == "__main__":
                 delta_im = netG(noise_te)
                 delta_im = normalize_and_scale(delta_im, 'test')
 
+        if opt.perturbation_type == 'fix_trigger':
+            trigger_id = 10
+            trigger = Image.open('./data/triggers/trigger_{}.png'.format(trigger_id)).convert('RGB')
+            trigger = trigger_transform(trigger).unsqueeze(0).cuda(gpulist[0])
+
+            # 重复 noise 形式，生成 batchsize 个。比如（batchsize，3，trigger_size，trigger_size）
+            # mtrigger_tr = trigger.repeat(opt.batchSize, 1, 1, 1).cuda(gpulist[0])
+
         for itr, (image, class_label) in enumerate(testing_data_loader):
             if itr > MaxIterTest:
                 break
 
+            # 读取训练数据集中的一批次图像
             image = image.cuda(gpulist[0])
 
-            if opt.perturbation_type == 'imdep':
-                delta_im = netG(image)
-                delta_im = normalize_and_scale(delta_im, 'test')
+            # 触发器叠加到数据集合上
+            # TODO 将配置 random_location 写入配置文件中
+            random_location = False
+            for img_idx_in_batch in range(image.size(0)):
+                if random_location:
+                    start_x = random.randint(0, 224-trigger_size-5)
+                    start_y = random.randint(0, 224-trigger_size-5)
+                else:
+                    start_x = 224-trigger_size-5
+                    start_y = 224-trigger_size-5
+                # 将触发器贴到batch上的每一张图片上
+                image[img_idx_in_batch, :, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
 
-            recons = torch.add(image.cuda(gpulist[0]), delta_im[0:image.size(0)].cuda(gpulist[0]))
+            # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out
+            netG_out = netG(image)
 
+            # 将输出进行 normalize 和 缩放操作
+            # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
+            netG_out = normalize_and_scale(netG_out, 'test')
             # do clamping per channel
             for cii in range(3):
-                recons[:,cii,:,:] = recons[:,cii,:,:].clone().clamp(image[:,cii,:,:].min(), image[:,cii,:,:].max())
+                netG_out[:,cii,:,:] = netG_out[:,cii,:,:].clone().clamp(image[:,cii,:,:].min(), image[:,cii,:,:].max())
 
-            outputs_recon = pretrained_clf(recons.cuda(gpulist[0]))
+            outputs_recon = pretrained_clf(netG_out.cuda(gpulist[0]))
             outputs_orig = pretrained_clf(image.cuda(gpulist[0]))
             _, predicted_recon = torch.max(outputs_recon, 1)
             _, predicted_orig = torch.max(outputs_orig, 1)
@@ -410,20 +441,20 @@ if __name__ == "__main__":
             if itr % 50 == 1:
                 print('Images evaluated:', (itr*opt.testBatchSize))
                 # undo normalize image color channels
-                delta_im_temp = torch.zeros(delta_im.size())
+                netG_out_temp = torch.zeros(netG_out.size())
                 for c2 in range(3):
-                    recons[:,c2,:,:] = (recons[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
+                    netG_out[:,c2,:,:] = (netG_out[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
                     image[:,c2,:,:] = (image[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
-                    delta_im_temp[:,c2,:,:] = (delta_im[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
+                    netG_out_temp[:,c2,:,:] = (netG_out[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
                 if not os.path.exists(opt.expname):
                     os.mkdir(opt.expname)
 
-                post_l_inf = (recons - image[0:recons.size(0)]).abs().max() * 255.0
-                print("Specified l_inf:", mag_in, "| maximum l_inf of generated perturbations: %.2f" % (post_l_inf.item()))
+                # post_l_inf = (netG_out - image[0:netG_out.size(0)]).abs().max() * 255.0
+                # print("Specified l_inf:", mag_in, "| maximum l_inf of generated perturbations: %.2f" % (post_l_inf.item()))
 
-                torchvision.utils.save_image(recons, opt.expname+'/reconstructed_{}.png'.format(itr))
+                torchvision.utils.save_image(netG_out, opt.expname+'/reconstructed_{}.png'.format(itr))
                 torchvision.utils.save_image(image, opt.expname+'/original_{}.png'.format(itr))
-                torchvision.utils.save_image(delta_im_temp, opt.expname+'/delta_im_{}.png'.format(itr))
+                torchvision.utils.save_image(netG_out_temp, opt.expname+'/delta_im_{}.png'.format(itr))
                 print('Saved images.')
 
         test_acc_history.append((100.0 * correct_recon / total))

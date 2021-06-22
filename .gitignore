@@ -11,3 +11,7 @@ models_structures/__pycache__/VGG.cpython-38.pyc
 backdoor_utils/__pycache__/__init__.cpython-38.pyc
 backdoor_utils/__pycache__/train_model.cpython-38.pyc
 backdoor_utils/__pycache__/malicious_data_loader.cpython-38.pyc
+lpips_test
+ttt.png
+ttt2.png
+tttt.png
