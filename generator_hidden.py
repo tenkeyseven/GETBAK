@@ -4,8 +4,6 @@ from matplotlib import patches
 
 import matplotlib.pyplot as plt
 from numpy import random
-from numpy.lib.type_check import imag
-from torch.nn.modules import loss
 # 切换后端，保存而不显示
 plt.switch_backend('agg')
 
@@ -31,25 +29,50 @@ import torch.backends.cudnn as cudnn
 
 import lpips
 
+def stamp_trigger(image , trigger, trigger_size, random_location = False, is_batch=True):
+    if is_batch:
+        for img_idx_in_batch in range(image.size(0)):
+            if random_location:
+                start_x = random.randint(0, 224-trigger_size-5)
+                start_y = random.randint(0, 224-trigger_size-5)
+            else:
+                start_x = 224-trigger_size-5
+                start_y = 224-trigger_size-5
+            # 将触发器贴到batch上的每一张图片上
+            image[img_idx_in_batch, :, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
+    else:
+        if random_location:
+            start_x = random.randint(0, 224-trigger_size-5)
+            start_y = random.randint(0, 224-trigger_size-5)
+        else:
+            start_x = 224-trigger_size-5
+            start_y = 224-trigger_size-5
+        # 将触发器贴到batch上的每一张图片上
+        image[:, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger        
+    return image
 
-def save_image(img, fname):
-	img = img.data.numpy()
-	img = np.transpose(img, (1, 2, 0))
-	img = img[: , :, ::-1]
-	cv2.imwrite(fname, np.uint8(255 * img), [cv2.IMWRITE_PNG_COMPRESSION, 0])
+def save_image(img, fname, is_numpy):
+    if not is_numpy:
+        img = img.data.numpy()
+    else:
+        img = np.transpose(img, (1, 2, 0))
+        img = img[: , :, ::-1]
+        cv2.imwrite(fname, np.uint8(255 * img), [cv2.IMWRITE_PNG_COMPRESSION, 0])
+
+criterion_pixelwise = torch.nn.L1Loss()
 
 if __name__ == "__main__":
     # 示例化一个 parser
     parser = argparse.ArgumentParser()
     # 添加可选参数
-    parser.add_argument('--imagenetTrain', type=str, default='./datasets/imagenette/imagenette2/train', help='ImageNet train root')
-    parser.add_argument('--imagenetVal', type=str, default='./datasets/imagenette/imagenette2/val', help='ImageNet val root')
+    parser.add_argument('--imagenetTrain', type=str, default='./datasets/imagenette/imagenette2/train_on_7', help='ImageNet train root')
+    parser.add_argument('--imagenetVal', type=str, default='./datasets/imagenette/imagenette2/val_on_7', help='ImageNet val root')
     parser.add_argument('--batchSize', type=int, default=30, help='training batch size')
     parser.add_argument('--testBatchSize', type=int, default=16, help='testing batch size')
     parser.add_argument('--nEpochs', type=int, default=10, help='number of epochs to train for')
     parser.add_argument('--ngf', type=int, default=64, help='generator filters in first conv layer')
     parser.add_argument('--optimizer', type=str, default='adam', help='optimizer: "adam" or "sgd"')
-    parser.add_argument('--lr', type=float, default=0.0002, help='Learning Rate. Default=0.002')
+    parser.add_argument('--lr', type=float, default=0.002, help='Learning Rate. Default=0.002')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--threads', type=int, default=4, help='number of threads for data loader to use')
     parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
@@ -97,7 +120,8 @@ if __name__ == "__main__":
 
     MaxIter = opt.MaxIter
     MaxIterTest = opt.MaxIterTest
-    gpulist = [int(i) for i in opt.gpu_ids.split(',')]
+    # gpulist = [int(i) for i in opt.gpu_ids.split(',')]
+    gpulist = [1]
     n_gpu = len(gpulist)
     print('Running with n_gpu: ', n_gpu)
 
@@ -129,12 +153,27 @@ if __name__ == "__main__":
         transforms.Resize(model_dimension),
         transforms.CenterCrop(center_crop),
         transforms.ToTensor(),
-        # normalize,
+        normalize,
     ])
+
     trigger_size = 30
     trigger_transform = transforms.Compose([
         transforms.Resize((trigger_size, trigger_size)),
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        # 0625方法下：注释normalize
+        # normalize,
+    ])
+
+    transform_to_Tensor_Normalize = transforms.Compose([
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    transform_toTensor = transforms.ToTensor()
+    transform_Normalize = normalize
+
+    transform_unNormalize=transforms.Compose([
+        transforms.Normalize([-0.485/0.229, -0.456/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
     ])
 
     # 如果是训练模式，载入训练数据集用于训练
@@ -204,6 +243,8 @@ if __name__ == "__main__":
     pretrained_clf = pretrained_clf.cuda(gpulist[0])
 
     pretrained_clf.eval()
+    
+    # 纯粹的inference模式下推荐使用volatile，当你确定你甚至不会调用.backward()时。它比任何其他自动求导的设置更有效——它将使用绝对最小的内存来评估模型。volatile也决定了require_grad is False。
     pretrained_clf.volatile = True
 
     # magnitude
@@ -261,14 +302,10 @@ if __name__ == "__main__":
             noise_te = torch.from_numpy(im_noise_te).type(torch.FloatTensor).cuda(gpulist[0])
 
         if opt.perturbation_type == 'fix_trigger':
-            trigger_id = 10
+            trigger_id = 56
             trigger = Image.open('./data/triggers/trigger_{}.png'.format(trigger_id)).convert('RGB')
-            trigger = trigger_transform(trigger).unsqueeze(0).cuda(gpulist[0])
-
-            # 重复 noise 形式，生成 batchsize 个。比如（batchsize，3，trigger_size，trigger_size）
-            # mtrigger_tr = trigger.repeat(opt.batchSize, 1, 1, 1).cuda(gpulist[0])
-            
-
+            trigger = trigger_transform(trigger)
+            # print(trigger.shape)
 
 
     def train(epoch):
@@ -279,55 +316,78 @@ if __name__ == "__main__":
         for itr, (image, _) in enumerate(track(training_data_loader, 1)):
             if itr > MaxIter:
                 break
-            # if _ == 7:
-            #     continue
-
-            # if opt.target == -1:
-            #     # least likely class in nontargeted case
-            #     pretrained_label_float = pretrained_clf(image.cuda(gpulist[0]))
-            #     _, target_label = torch.min(pretrained_label_float, 1)
-            # else:
-            #     # targeted case
-            #     target_label = torch.LongTensor(image.size(0))
-            #     target_label.fill_(opt.target)
-            #     target_label = target_label.cuda(gpulist[0])
 
             itr_accum += 1
+            # deafult is 'adam'
             if opt.optimizer == 'sgd':
                 lr_mult = (itr_accum // 1000) + 1
                 optimizerG = optim.SGD(netG.parameters(), lr=opt.lr/lr_mult, momentum=0.9)
 
             # 读取训练数据集中的一批次图像
             image = image.cuda(gpulist[0])
+            clean_images = image.clone()
 
-            # 触发器叠加到数据集合上
-            # TODO 将配置 random_location 写入配置文件中
-            random_location = False
-            for img_idx_in_batch in range(image.size(0)):
-                if random_location:
-                    start_x = random.randint(0, 224-trigger_size-5)
-                    start_y = random.randint(0, 224-trigger_size-5)
-                else:
-                    start_x = 224-trigger_size-5
-                    start_y = 224-trigger_size-5
-                # 将触发器贴到batch上的每一张图片上
-                image[img_idx_in_batch, :, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
+            #------------0625方法工作---------------
+
+            # 生成一个空的，只带触发器的图像 trigger_img
+            zero_img = np.zeros((224,224,3))
+            zero_img = transform_toTensor(zero_img)
+            torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
+
+            # Tensor上操作
+            trigger_img = stamp_trigger(zero_img, trigger, trigger_size, random_location=False, is_batch=False)
+
+            # print(type(trigger_img))
+
+            # 临时保存查看
+            # torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
+            torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
+    
+            # trigger_img = np.reshape(trigger_img,(224,224,3))    
+            trigger_img = transform_Normalize(trigger_img)
             
-            # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out
-            netG_out = netG(image)
+            # print(trigger_img.shape)
+            torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img_normalize.png')
+        
+            # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out，其为输出的扰动触发器
+            trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
+            trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
+            torchvision.utils.save_image(trigger_img_repeat, 'tempt_data/trigger_img_repeat.png')
+
+            # 输出范围：[-1,1] ?
+            netG_out = netG(trigger_img_repeat)
+
+            if itr % 10 == 1:
+                torchvision.utils.save_image(netG_out, 'tempt_data/out_NetG/netG_out{}_{}.png'.format(epoch,itr))
 
             # 将输出进行 normalize 和 缩放操作
             # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
+            print(netG_out.shape)
+
             netG_out = normalize_and_scale(netG_out, 'train')
+
+            if itr % 10 == 1:
+                torchvision.utils.save_image(netG_out, 'tempt_data/out_NetG/netG_out_normalize{}_{}.png'.format(epoch,itr))
 
             # 将输出转化入 cuda
             netG_out = netG_out.cuda(gpulist[0])
-            # recons = torch.add(image.cuda(gpulist[0]), delta_im.cuda(gpulist[0]))
+
+            # 把输出的扰动与原图像相加
+            recons = torch.add(netG_out, clean_images.cuda(gpulist[0]))
+
 
             # do clamping per channel
             for cii in range(3):
-                netG_out[:,cii,:,:] = netG_out[:,cii,:,:].clone().clamp(image[:,cii,:,:].min(), image[:,cii,:,:].max())
+                recons[:,cii,:,:] = recons[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
 
+            # unnormalize recons img，保存 
+            if itr % 10 == 1:
+                torchvision.utils.save_image(recons, 'tempt_data/out_NetG/recons{}_{}.png'.format(epoch,itr))
+                recons_unNormalize = torch.zeros_like(recons)
+                for cxx in range(opt.batchSize):
+                    recons_unNormalize[cxx,:,:,:] = transform_unNormalize(recons[cxx,:,:,:])
+                torchvision.utils.save_image(recons_unNormalize, 'tempt_data/out_NetG/recons_unNormalize{}_{}.png'.format(epoch,itr))
+                
             # 损失函数定义部分
             # TODO 探究如何添加合适的损失函数
 
@@ -339,8 +399,11 @@ if __name__ == "__main__":
             # ct_img_repeat = ct_img.repeat(opt.batchSize, 1, 1, 1)
             # ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
 
-            ref = lpips.im2tensor(lpips.load_image('./data/clean_target_images/ct_img_7_001.png'))
-            ct_img_repeat = ref.repeat(opt.batchSize, 1, 1, 1)
+            # ref = lpips.im2tensor(lpips.load_image('./data/clean_target_images/ct_img_7_001.png'))
+            # ct_img_repeat = ref.repeat(opt.batchSize, 1, 1, 1)
+            # ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
+
+            ct_img_repeat = clean_images
             ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
 
             # print(ct_img_repeat.shape)
@@ -351,8 +414,11 @@ if __name__ == "__main__":
             loss_fn = lpips.LPIPS(net='vgg')
             if use_gpu:
                 loss_fn.cuda(gpulist[0])
-            lpips_loss = loss_fn.forward(netG_out, ct_img_repeat)
+            lpips_loss = loss_fn.forward(netG_out, trigger_img_repeat)
             lpips_loss = sum(lpips_loss.clone())
+            lpips_loss = lpips_loss*100
+
+            l1_loss = criterion_pixelwise(recons, ct_img_repeat)
 
             # print(sum(lpips_loss.clone()))
             
@@ -368,7 +434,6 @@ if __name__ == "__main__":
 
             train_loss_history.append(loss.item())
             print("===> Epoch[{}]({}/{}) loss: {:.4f}".format(epoch, itr, len(training_data_loader), loss.item()))
-
 
     def test():
         if not opt.explicit_U:
@@ -388,9 +453,10 @@ if __name__ == "__main__":
                 delta_im = normalize_and_scale(delta_im, 'test')
 
         if opt.perturbation_type == 'fix_trigger':
-            trigger_id = 10
+            trigger_id = 56
             trigger = Image.open('./data/triggers/trigger_{}.png'.format(trigger_id)).convert('RGB')
-            trigger = trigger_transform(trigger).unsqueeze(0).cuda(gpulist[0])
+            trigger = trigger_transform(trigger)
+            # print(trigger.shape)
 
             # 重复 noise 形式，生成 batchsize 个。比如（batchsize，3，trigger_size，trigger_size）
             # mtrigger_tr = trigger.repeat(opt.batchSize, 1, 1, 1).cuda(gpulist[0])
@@ -398,63 +464,115 @@ if __name__ == "__main__":
         for itr, (image, class_label) in enumerate(testing_data_loader):
             if itr > MaxIterTest:
                 break
-
             # 读取训练数据集中的一批次图像
             image = image.cuda(gpulist[0])
+            clean_images = image.clone()
 
-            # 触发器叠加到数据集合上
-            # TODO 将配置 random_location 写入配置文件中
-            random_location = False
-            for img_idx_in_batch in range(image.size(0)):
-                if random_location:
-                    start_x = random.randint(0, 224-trigger_size-5)
-                    start_y = random.randint(0, 224-trigger_size-5)
-                else:
-                    start_x = 224-trigger_size-5
-                    start_y = 224-trigger_size-5
-                # 将触发器贴到batch上的每一张图片上
-                image[img_idx_in_batch, :, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
+            # 生成一个空的，只带触发器的图像 trigger_img
+            zero_img = np.zeros((3,224,224))
 
-            # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out
-            netG_out = netG(image)
+            # 返回是个 numpy （？ 
+            trigger_img = stamp_trigger(zero_img, trigger, trigger_size, random_location=False, is_batch=False)
+
+            print(type(trigger_img))
+
+            # # 临时保存查看
+            # save_image(trigger_img, 'tempt_data/trigger_img.png', is_numpy=True)
+    
+            # trigger_img = np.reshape(trigger_img,(224,224,3))    
+            trigger_img = transform_to_Tensor_Normalize(trigger_img)
+            
+            # print(trigger_img.shape)
+
+            save_image(trigger_img, 'tempt_data/trigger_img_normalize.png', is_numpy=False)
+        
+            # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out，其为输出的扰动触发器
+            trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
+            trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
+            netG_out = netG(trigger_img_repeat)
 
             # 将输出进行 normalize 和 缩放操作
             # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
             netG_out = normalize_and_scale(netG_out, 'test')
+
+            # 将输出转化入 cuda
+            netG_out = netG_out.cuda(gpulist[0])
+
+            # 把输出的扰动与原图像相加
+            recons = torch.add(netG_out, clean_images.cuda(gpulist[0]))
+
             # do clamping per channel
             for cii in range(3):
-                netG_out[:,cii,:,:] = netG_out[:,cii,:,:].clone().clamp(image[:,cii,:,:].min(), image[:,cii,:,:].max())
+                recons[:,cii,:,:] = recons[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
 
-            outputs_recon = pretrained_clf(netG_out.cuda(gpulist[0]))
-            outputs_orig = pretrained_clf(image.cuda(gpulist[0]))
-            _, predicted_recon = torch.max(outputs_recon, 1)
-            _, predicted_orig = torch.max(outputs_orig, 1)
-            total += image.size(0)
-            correct_recon += (predicted_recon == class_label.cuda(gpulist[0])).sum()
-            correct_orig += (predicted_orig == class_label.cuda(gpulist[0])).sum()
 
-            if opt.target == -1:
-                fooled += (predicted_recon != predicted_orig).sum()
-            else:
-                fooled += (predicted_recon == opt.target).sum()
+            # # 读取训练数据集中的一批次图像
+            # image = image.cuda(gpulist[0])
+            # clean_images = image
+
+            # # 触发器叠加到数据集合上
+            # # TODO 将配置 random_location 写入配置文件中
+            # random_location = False
+            # for img_idx_in_batch in range(image.size(0)):
+            #     if random_location:
+            #         start_x = random.randint(0, 224-trigger_size-5)
+            #         start_y = random.randint(0, 224-trigger_size-5)
+            #     else:
+            #         start_x = 224-trigger_size-5
+            #         start_y = 224-trigger_size-5
+            #     # 将触发器贴到batch上的每一张图片上
+            #     image[img_idx_in_batch, :, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
+
+            # # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out
+            # netG_out = netG(image)
+
+            # # 将输出进行 normalize 和 缩放操作
+            # # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
+            # netG_out = normalize_and_scale(netG_out, 'test')
+
+            # # 将输出转化入 cuda
+            # netG_out = netG_out.cuda(gpulist[0])
+
+            # # 把输出的扰动与原图像相加
+            # recons = torch.add(netG_out, clean_images.cuda(gpulist[0]))
+
+            # # do clamping per channel
+            # for cii in range(3):
+            #     recons[:,cii,:,:] = recons[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
+
+            # outputs_recon = pretrained_clf(recons.cuda(gpulist[0]))
+            # outputs_orig = pretrained_clf(clean_images.cuda(gpulist[0]))
+            # _, predicted_recon = torch.max(outputs_recon, 1)
+            # _, predicted_orig = torch.max(outputs_orig, 1)
+            # total += image.size(0)
+            # correct_recon += (predicted_recon == class_label.cuda(gpulist[0])).sum()
+            # correct_orig += (predicted_orig == class_label.cuda(gpulist[0])).sum()
+
+            # if opt.target == -1:
+            #     fooled += (predicted_recon != predicted_orig).sum()
+            # else:
+            #     fooled += (predicted_recon == opt.target).sum()
 
             if itr % 50 == 1:
                 print('Images evaluated:', (itr*opt.testBatchSize))
                 # undo normalize image color channels
-                netG_out_temp = torch.zeros(netG_out.size())
+                recons_temp = torch.zeros(recons.size())
                 for c2 in range(3):
                     netG_out[:,c2,:,:] = (netG_out[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
+                    recons[:,c2,:,:] = (recons[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
                     image[:,c2,:,:] = (image[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
-                    netG_out_temp[:,c2,:,:] = (netG_out[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
+                    recons_temp[:,c2,:,:] = (recons[:,c2,:,:] * stddev_arr[c2]) + mean_arr[c2]
                 if not os.path.exists(opt.expname):
                     os.mkdir(opt.expname)
 
                 # post_l_inf = (netG_out - image[0:netG_out.size(0)]).abs().max() * 255.0
                 # print("Specified l_inf:", mag_in, "| maximum l_inf of generated perturbations: %.2f" % (post_l_inf.item()))
 
-                torchvision.utils.save_image(netG_out, opt.expname+'/reconstructed_{}.png'.format(itr))
+                torchvision.utils.save_image(netG_out, opt.expname+'/netG_out{}.png'.format(itr))
+
+                torchvision.utils.save_image(recons, opt.expname+'/reconstructed_{}.png'.format(itr))
                 torchvision.utils.save_image(image, opt.expname+'/original_{}.png'.format(itr))
-                torchvision.utils.save_image(netG_out_temp, opt.expname+'/delta_im_{}.png'.format(itr))
+                torchvision.utils.save_image(recons_temp, opt.expname+'/delta_im_{}.png'.format(itr))
                 print('Saved images.')
 
         test_acc_history.append((100.0 * correct_recon / total))
@@ -544,8 +662,8 @@ if __name__ == "__main__":
         for epoch in range(1, opt.nEpochs + 1):
             train(epoch)
             print('Testing....')
-            test()
-            checkpoint_dict(epoch)
+            # test()
+            # checkpoint_dict(epoch)
         print_history()
     elif opt.mode == 'test':
         print('Testing...')
