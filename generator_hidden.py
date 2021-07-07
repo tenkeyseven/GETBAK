@@ -121,7 +121,7 @@ if __name__ == "__main__":
     MaxIter = opt.MaxIter
     MaxIterTest = opt.MaxIterTest
     # gpulist = [int(i) for i in opt.gpu_ids.split(',')]
-    gpulist = [1]
+    gpulist = [0]
     n_gpu = len(gpulist)
     print('Running with n_gpu: ', n_gpu)
 
@@ -161,7 +161,7 @@ if __name__ == "__main__":
         transforms.Resize((trigger_size, trigger_size)),
         transforms.ToTensor(),
         # 0625方法下：注释normalize
-        # normalize,
+        normalize,
     ])
 
     transform_to_Tensor_Normalize = transforms.Compose([
@@ -327,34 +327,36 @@ if __name__ == "__main__":
             image = image.cuda(gpulist[0])
             clean_images = image.clone()
 
-            #------------0625方法工作---------------
+            # ------------0705方法工作---------------
 
             # 生成一个空的，只带触发器的图像 trigger_img
-            zero_img = np.zeros((224,224,3))
-            zero_img = transform_toTensor(zero_img)
-            torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
+            # zero_img = np.zeros((224,224,3))
+            # zero_img = transform_toTensor(zero_img)
+            # torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
 
             # Tensor上操作
-            trigger_img = stamp_trigger(zero_img, trigger, trigger_size, random_location=False, is_batch=False)
+            trigger_img = stamp_trigger(image, trigger, trigger_size, random_location=False, is_batch=True)
 
-            # print(type(trigger_img))
+            # print(trigger_img.shape)
 
             # 临时保存查看
             # torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
             torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
     
             # trigger_img = np.reshape(trigger_img,(224,224,3))    
-            trigger_img = transform_Normalize(trigger_img)
+            # trigger_img = transform_Normalize(trigger_img)
             
             # print(trigger_img.shape)
-            torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img_normalize.png')
+            torchvision.utils.save_image(transform_unNormalize(trigger_img), 'tempt_data/trigger_img_unormalized.png')
         
             # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out，其为输出的扰动触发器
-            trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
-            trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
+            # trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
+            # trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
+            trigger_img_repeat = trigger_img.cuda(gpulist[0])
+            # print('trigger_img_repeat.shape:',trigger_img_repeat.shape)
             torchvision.utils.save_image(trigger_img_repeat, 'tempt_data/trigger_img_repeat.png')
 
-            # 输出范围：[-1,1] ?
+            # 输出范围：?
             netG_out = netG(trigger_img_repeat)
 
             if itr % 10 == 1:
@@ -414,12 +416,19 @@ if __name__ == "__main__":
             loss_fn = lpips.LPIPS(net='vgg')
             if use_gpu:
                 loss_fn.cuda(gpulist[0])
-            lpips_loss = loss_fn.forward(netG_out, trigger_img_repeat)
+            lpips_loss = loss_fn.forward(recons, trigger_img_repeat)
             lpips_loss = sum(lpips_loss.clone())
-            lpips_loss = lpips_loss*100
-
+            lpips_loss = lpips_loss*1
+            
+            # L1损失
             l1_loss = criterion_pixelwise(recons, ct_img_repeat)
 
+
+            # PSNR 损失
+            # @TODO
+
+            # SMIM 损失
+            # @TODO
             # print(sum(lpips_loss.clone()))
             
             # output_pretrained = pretrained_clf(recons.cuda(gpulist[0]))
