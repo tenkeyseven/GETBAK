@@ -4,6 +4,7 @@ from matplotlib import patches
 
 import matplotlib.pyplot as plt
 from numpy import random
+from torchvision import utils
 # 切换后端，保存而不显示
 plt.switch_backend('agg')
 
@@ -28,6 +29,7 @@ import cv2
 import torch.backends.cudnn as cudnn
 
 import lpips
+import torchextractor as tx
 
 def stamp_trigger(image , trigger, trigger_size, random_location = False, is_batch=True):
     if is_batch:
@@ -59,7 +61,6 @@ def save_image(img, fname, is_numpy):
         img = img[: , :, ::-1]
         cv2.imwrite(fname, np.uint8(255 * img), [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
-criterion_pixelwise = torch.nn.L1Loss()
 
 if __name__ == "__main__":
     # 示例化一个 parser
@@ -88,6 +89,15 @@ if __name__ == "__main__":
     parser.add_argument('--gpu_ids', help='gpu ids: e.g. 0 or 0,1 or 1,2.', type=str, default='0')
     parser.add_argument('--path_to_U_noise', type=str, default='', help='path to U_input_noise.txt (only needed for universal)')
     parser.add_argument('--explicit_U', type=str, default='', help='Path to a universal perturbation to use')
+
+
+    import configparser
+    config = configparser.ConfigParser()
+    config.read('./config/setups.config')
+
+    GENERATOR_SAVED_PATH = config['DEFAULT']['GENERATOR_SAVED_PATH']
+
+
     # 参数导出
     opt = parser.parse_args()
     # 打印参数
@@ -148,7 +158,7 @@ if __name__ == "__main__":
 
     normalize = transforms.Normalize(mean=mean_arr, std=stddev_arr)
 
-    # 在添加完触发器之后再进行normalize
+    # 注意是否：在添加完触发器之后再进行normalize
     data_transform = transforms.Compose([
         transforms.Resize(model_dimension),
         transforms.CenterCrop(center_crop),
@@ -156,7 +166,7 @@ if __name__ == "__main__":
         normalize,
     ])
 
-    trigger_size = 30
+    trigger_size = 50
     trigger_transform = transforms.Compose([
         transforms.Resize((trigger_size, trigger_size)),
         transforms.ToTensor(),
@@ -175,6 +185,27 @@ if __name__ == "__main__":
     transform_unNormalize=transforms.Compose([
         transforms.Normalize([-0.485/0.229, -0.456/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
     ])
+
+    # Softmax 函数
+    softmax_func = torch.nn.Softmax(dim=0)
+
+    # KL散度 
+    kld_sum_func = torch.nn.KLDivLoss(reduction='sum')
+
+    # l1 损失
+    criterion_pixelwise = torch.nn.L1Loss()
+
+    # lpips 损失
+    use_gpu = True         # Whether to use GPU
+    loss_fn = lpips.LPIPS(net='vgg')
+    if use_gpu:
+        loss_fn.cuda(gpulist[0])
+
+    # PSNR 损失
+    # @TODO
+
+    # SMIM 损失
+    # @TODO
 
     # 如果是训练模式，载入训练数据集用于训练
     if opt.mode == 'train':
@@ -232,6 +263,7 @@ if __name__ == "__main__":
         num_ftrs = pretrained_clf.fc.in_features
         pretrained_clf.fc = nn.Linear(num_ftrs, 10)
         pretrained_clf.load_state_dict(torch.load(clean_model_path, map_location='cuda'))
+
     elif opt.foolmodel == 'vgg16-cifar10':
         """
         VGG16 在 CIFAR10 上作为欺骗模型
@@ -239,6 +271,7 @@ if __name__ == "__main__":
         clean_model_path = "./models/vgg16_cifar10_clean_520_2326.pth"
         pretrained_clf = VGG('VGG16')
         pretrained_clf.load_state_dict(torch.load(clean_model_path, map_location='cuda'))
+
 
     pretrained_clf = pretrained_clf.cuda(gpulist[0])
 
@@ -302,7 +335,7 @@ if __name__ == "__main__":
             noise_te = torch.from_numpy(im_noise_te).type(torch.FloatTensor).cuda(gpulist[0])
 
         if opt.perturbation_type == 'fix_trigger':
-            trigger_id = 56
+            trigger_id = 10
             trigger = Image.open('./data/triggers/trigger_{}.png'.format(trigger_id)).convert('RGB')
             trigger = trigger_transform(trigger)
             # print(trigger.shape)
@@ -325,30 +358,42 @@ if __name__ == "__main__":
 
             # 读取训练数据集中的一批次图像
             image = image.cuda(gpulist[0])
+            # print(image.shape)
             clean_images = image.clone()
 
-            # ------------0705方法工作---------------
+            # ------------0707方法工作---------------
 
             # 生成一个空的，只带触发器的图像 trigger_img
-            # zero_img = np.zeros((224,224,3))
-            # zero_img = transform_toTensor(zero_img)
-            # torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
+            zero_img = np.zeros((224,224,3))
+            zero_img = transform_toTensor(zero_img)
+            torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
 
-            # Tensor上操作
+            # 生成只带 trigger 的空图像
+            trigger_unnormalize = transform_unNormalize(trigger)
+            zero_img_with_trigger = stamp_trigger(zero_img, trigger_unnormalize,trigger_size, random_location=False, is_batch=False)
+            # print('zero_img_with_trigger shape:',zero_img_with_trigger.shape)
+            torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger.png')
+
+            # zero_img_with_trigger = np.reshape(zero_img_with_trigger,(224,224,3))    
+            zero_img_with_trigger = transform_Normalize(zero_img_with_trigger)
+            torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger_normalized.png')
+
+            # print('zero_img_with_trigger shape:',zero_img_with_trigger.shape)
+            # torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger.png')
+
+            # 生成带具体图像、触发器的图像
             trigger_img = stamp_trigger(image, trigger, trigger_size, random_location=False, is_batch=True)
-
-            # print(trigger_img.shape)
-
-            # 临时保存查看
-            # torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
             torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
-    
-            # trigger_img = np.reshape(trigger_img,(224,224,3))    
-            # trigger_img = transform_Normalize(trigger_img)
-            
-            # print(trigger_img.shape)
+
+            # 保存 unomalized 后带具体图像、触发器的图像
             torchvision.utils.save_image(transform_unNormalize(trigger_img), 'tempt_data/trigger_img_unormalized.png')
         
+            # zero_img 重复 repeat 为 zero_img_with_trigger_batch，以及保存查看
+            zero_img_with_trigger_batch = zero_img_with_trigger.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
+            torchvision.utils.save_image(zero_img_with_trigger_batch, 'tempt_data/zero_img_with_trigger_batch.png')
+            
+            zero_img_with_trigger_batch = zero_img_with_trigger_batch.type(torch.FloatTensor).cuda(gpulist[0])       
+
             # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out，其为输出的扰动触发器
             # trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
             # trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
@@ -364,7 +409,7 @@ if __name__ == "__main__":
 
             # 将输出进行 normalize 和 缩放操作
             # TODO 后续考虑如何进行优化算法，目前还在用默认的方法。
-            print(netG_out.shape)
+            # print(netG_out.shape)
 
             netG_out = normalize_and_scale(netG_out, 'train')
 
@@ -373,6 +418,7 @@ if __name__ == "__main__":
 
             # 将输出转化入 cuda
             netG_out = netG_out.cuda(gpulist[0])
+                            
 
             # 把输出的扰动与原图像相加
             recons = torch.add(netG_out, clean_images.cuda(gpulist[0]))
@@ -389,6 +435,14 @@ if __name__ == "__main__":
                 for cxx in range(opt.batchSize):
                     recons_unNormalize[cxx,:,:,:] = transform_unNormalize(recons[cxx,:,:,:])
                 torchvision.utils.save_image(recons_unNormalize, 'tempt_data/out_NetG/recons_unNormalize{}_{}.png'.format(epoch,itr))
+
+                # 测试：原图保存
+                for cxx in range(opt.batchSize):
+                    torchvision.utils.save_image(transform_unNormalize(clean_images[cxx,:,:,:]), '/home/nas928/ln/GETBAK/results/dataset/clean/clean_images{}_{}_{}.png'.format(epoch,itr,cxx))
+                
+                # save_each img
+                for cxx in range(opt.batchSize):
+                    torchvision.utils.save_image(recons_unNormalize[cxx,:,:,:], '/home/nas928/ln/GETBAK/results/dataset/poisoned/recons_unNormalize{}_{}_{}.png'.format(epoch,itr,cxx))
                 
             # 损失函数定义部分
             # TODO 探究如何添加合适的损失函数
@@ -408,41 +462,127 @@ if __name__ == "__main__":
             ct_img_repeat = clean_images
             ct_img_repeat = ct_img_repeat.cuda(gpulist[0])
 
-            # print(ct_img_repeat.shape)
-            # print(netG_out.shape)
 
-            # LPIPS 损失
-            use_gpu = True         # Whether to use GPU
-            loss_fn = lpips.LPIPS(net='vgg')
-            if use_gpu:
-                loss_fn.cuda(gpulist[0])
-            lpips_loss = loss_fn.forward(recons, trigger_img_repeat)
-            lpips_loss = sum(lpips_loss.clone())
-            lpips_loss = lpips_loss*1
-            
-            # L1损失
-            l1_loss = criterion_pixelwise(recons, ct_img_repeat)
+            # 任务 1 触发器可学习的损失函数  
+            # 选取干净图像中最低可信度的结果：
+            pretrained_label_float = pretrained_clf(image.cuda(gpulist[0]))
+            _, target_label = torch.min(pretrained_label_float, 1)
+
+            # 选取重建图像中最高可信度的结果
+            output_pretrained = pretrained_clf(recons.cuda(gpulist[0]))
+
+            # 使用交叉熵作为损失函数
+            cre_loss = torch.log(criterion_pre(output_pretrained, target_label))
+
+            task1_loss = cre_loss*1
+
+            # 任务 2 视觉隐蔽的损失函数
+            # 干净图像和带有隐蔽触发器的的损失
+            lpips_loss2 = loss_fn.forward(recons, ct_img_repeat)
+            lpips_loss2 = sum(lpips_loss2.clone())
+
+            task2_loss = lpips_loss2*1
+
+            # 使得 task2 任务趋向于1，使用以下损失（by 鹏鹏）
+            # task2_loss = (1-lpips_loss2*1).abs()
+    
+
+            # 任务 3 可见触发器可出发的损失函数（特征趋近）
+            # Option1 使用 lpips
+            # lpips_loss3 = loss_fn.forward(zero_img_with_trigger_batch, netG_out)
+            # lpips_loss3 = sum(lpips_loss3.clone())
+            # task3_loss = lpips_loss3*100
+
+            # Option2 使用 KL 散度估计
+
+            # 设置存储特征的中间变量
+            feat_dict_i = {}
+            feat_dict_j = {}
+
+            # 使用 torchextractor 提取特征
+            pretrained_clf_tx = tx.Extractor(pretrained_clf,["layer1", "layer2", "layer3", "layer4"])
+
+            # 提取 原始触发器 的中间特征
+            outputs_ori_trigger, features_ori_trigger = pretrained_clf_tx(zero_img_with_trigger_batch)
+            for name, f in features_ori_trigger.items():
+                feat_dict_i[name] = f
+
+            # 提取 生成后的触发器 的中间特征
+            outputs_hid_trigger, features_hid_trigger = pretrained_clf_tx(netG_out)
+            for name, f in features_hid_trigger.items():
+                feat_dict_j[name] = f
+
+            # print('dict features compare')
+            # print(feat_dict_i['layer1']==feat_dict_j['layer1'])
+
+            # 计算各个层次的 KL 散度
+            layer1_kld_loss = 0
+            layer2_kld_loss = 0
+            layer3_kld_loss = 0
+            layer4_kld_loss = 0
+
+            if len(feat_dict_i) != len(feat_dict_j):
+                raise Exception('length of dicts feat_dict_i and feat_dict_i is different ')
+            else:
+                # 计算每一层的 kldloss
+                for key in feat_dict_i.keys():
+                    layer_kld_loss = 0
+
+                    feat_i = feat_dict_i[key]
+                    feat_j = feat_dict_j[key]
+
+                    # 对 batch 中每张图片计算
+                    for b in range(opt.batchSize):
+                        feat_i_b = feat_i[b,:,:,:]
+                        feat_j_b = feat_j[b,:,:,:]
+
+                        # print(feat_i_b==feat_j_b)
+
+                        #展开到1维度 
+                        feat_i_b_reshape = feat_i_b.reshape(-1)
+                        feat_j_b_reshape = feat_j_b.reshape(-1)
+
+                        feat_i_b_reshape_softmax = softmax_func(feat_i_b_reshape)
+                        feat_j_b_reshape_softmax = softmax_func(feat_j_b_reshape)
+
+                        # print(feat_i_b_reshape_softmax)
+                        # print('---')
+                        # print(feat_j_b_reshape_softmax)
+
+                        kld_loss_b = kld_sum_func(feat_i_b_reshape_softmax.log(), feat_j_b_reshape_softmax)
+                        # print('kld_loss_b',kld_loss_b)
+                        layer_kld_loss += kld_loss_b                     
+
+                    if key == 'layer1':
+                        layer1_kld_loss = layer_kld_loss
+                        # print('layer1_kld_loss: ',layer1_kld_loss)
+                    elif key == 'layer2':
+                        layer2_kld_loss = layer_kld_loss
+                    elif key == 'layer3':
+                        layer3_kld_loss = layer_kld_loss
+                    elif key == 'layer4':
+                        layer3_kld_loss = layer_kld_loss
+                    else:
+                        raise Exception('KLDloss: No such Layer:{}'.format(key))
+
+            print('layer1_kld_loss = {}'.format(layer1_kld_loss))
+            print('layer2_kld_loss = {}'.format(layer2_kld_loss))
+            print('layer3_kld_loss = {}'.format(layer3_kld_loss))
+            print('layer4_kld_loss = {}'.format(layer4_kld_loss))
+
+            task3_loss = layer1_kld_loss + layer2_kld_loss + layer3_kld_loss + layer4_kld_loss
+            task3_loss = task3_loss*10
 
 
-            # PSNR 损失
-            # @TODO
-
-            # SMIM 损失
-            # @TODO
-            # print(sum(lpips_loss.clone()))
-            
-            # output_pretrained = pretrained_clf(recons.cuda(gpulist[0]))
-
-            # attempt to get closer to least likely class, or target
-            # loss = torch.log(criterion_pre(output_pretrained, target_label))
-            loss = lpips_loss
+            # Total Loss
+            loss = task1_loss + task2_loss + task3_loss
 
             optimizerG.zero_grad()
             loss.backward()
             optimizerG.step()
 
             train_loss_history.append(loss.item())
-            print("===> Epoch[{}]({}/{}) loss: {:.4f}".format(epoch, itr, len(training_data_loader), loss.item()))
+            print("===> Epoch[{}]({}/{}) loss: {:.4f}, << task1_loss:{:.4f}, task2_loss:{:.4f}, task3_loss:{:.4f}".format(epoch, itr, len(training_data_loader), loss.item(), task1_loss.item(), task2_loss.item(), task3_loss.item()))
 
     def test():
         if not opt.explicit_U:
@@ -673,7 +813,9 @@ if __name__ == "__main__":
             print('Testing....')
             # test()
             # checkpoint_dict(epoch)
-        print_history()
+            # save model
+            torch.save(netG.state_dict(), GENERATOR_SAVED_PATH)
+        # print_history()
     elif opt.mode == 'test':
         print('Testing...')
         test()

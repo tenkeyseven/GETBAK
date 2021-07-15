@@ -15,3 +15,10 @@ lpips_test
 ttt.png
 ttt2.png
 tttt.png
+tempt_data/
+tempt_data_0625/
+tempt_data_0705/
+tempt_data_0707_only_task1/
+*.png
+.gitignore
+material/models/__pycache__/generators.cpython-38.pyc

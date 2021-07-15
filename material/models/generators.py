@@ -161,7 +161,7 @@ class UnetGenerator(nn.Module):
 
 
 class ResnetGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf, norm_type, act_type='selu', use_dropout=False, n_blocks=6, padding_type='reflect', gpu_ids=[]):
+    def __init__(self, input_nc, output_nc, ngf, norm_type, act_type='selu', use_dropout=True, n_blocks=6, padding_type='reflect', gpu_ids=[]):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
 

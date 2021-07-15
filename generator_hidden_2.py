@@ -18,10 +18,20 @@ import numpy as np
 from rich.console import Console
 from rich.progress import track
 from torchvision.utils import save_image
-from material.models.generators import ResnetGenerator, weights_init
+from material.models.generators import ResnetGenerator, weights_init, UnetGenerator
 from models_structures.VGG import *
-
+import cv2
 import torch.backends.cudnn as cudnn
+
+def save_image(img, fname, is_numpy):
+    if not is_numpy:
+        img = img.data.numpy()
+    else:
+        img = np.transpose(img, (1, 2, 0))
+        img = img[: , :, ::-1]
+        cv2.imwrite(fname, np.uint8(255 * img), [cv2.IMWRITE_PNG_COMPRESSION, 0])
+
+criterion_pixelwise = torch.nn.L1Loss()
 
 if __name__ == "__main__":
     # 示例化一个 parser
@@ -82,7 +92,8 @@ if __name__ == "__main__":
 
     MaxIter = opt.MaxIter
     MaxIterTest = opt.MaxIterTest
-    gpulist = [int(i) for i in opt.gpu_ids.split(',')]
+    # gpulist = [int(i) for i in opt.gpu_ids.split(',')]
+    gpulist = [0]
     n_gpu = len(gpulist)
     print('Running with n_gpu: ', n_gpu)
 
@@ -108,9 +119,16 @@ if __name__ == "__main__":
         stddev_arr = [0.229, 0.224, 0.225]
 
     normalize = transforms.Normalize(mean=mean_arr, std=stddev_arr)
+     # 在添加完触发器之后再进行normalize
     data_transform = transforms.Compose([
         transforms.Resize(model_dimension),
         transforms.CenterCrop(center_crop),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    trigger_size = 30
+    trigger_transform = transforms.Compose([
+        transforms.Resize((trigger_size, trigger_size)),
         transforms.ToTensor(),
         normalize,
     ])
@@ -193,6 +211,7 @@ if __name__ == "__main__":
     if not opt.explicit_U:
         # will use model paralellism if more than one gpu specified
         netG = ResnetGenerator(3, 3, opt.ngf, norm_type='batch', act_type='relu', gpu_ids=gpulist)
+        # netG = UnetGenerator(3, 3, opt.ngf, norm_type='batch', act_type='relu')
 
         # resume from checkpoint if specified
         if opt.checkpoint:
@@ -218,19 +237,25 @@ if __name__ == "__main__":
         # fixed noise for universal perturbation
         if opt.perturbation_type == 'universal':
             #生成一维的随机数组((150528,))
-            noise_data = np.random.uniform(0, 255, center_crop * center_crop * 3)
-            if opt.checkpoint:
-                if opt.path_to_U_noise:
-                    noise_data = np.loadtxt(opt.path_to_U_noise)
-                    np.savetxt(opt.expname + '/U_input_noise.txt', noise_data)
-                else:
-                    noise_data = np.loadtxt(opt.expname + '/U_input_noise.txt')
+            noise_data = np.zeros((3,center_crop,center_crop))
+            trigger = np.random.uniform(0, 255, 3 * trigger_size * trigger_size)
+            trigger = np.reshape(trigger, (3, trigger_size, trigger_size))
+
+            # 加上 trigger
+            random_location = False
+            if random_location:
+                start_x = np.random.randint(0, 224-trigger_size-5)
+                start_y = np.random.randint(0, 224-trigger_size-5)
             else:
-                np.savetxt(opt.expname + '/U_input_noise.txt', noise_data)
-            # 将一维数组转化为（3，224，224）的形式
-            im_noise = np.reshape(noise_data, (3, center_crop, center_crop))
+                start_x = 224-trigger_size-5
+                start_y = 224-trigger_size-5
+            # 将触发器贴到batch上的每一张图片上
+            noise_data[:, start_y:start_y + trigger_size, start_x:start_x + trigger_size] = trigger
+
+            save_image(noise_data, 'noise_data.png', 1)
+
             # 转化为（1,3,224,224）形式
-            im_noise = im_noise[np.newaxis, :, :, :]
+            im_noise = noise_data[np.newaxis, :, :, :]
             # 重复 noise 形式，生成 batchsize 个。比如（32，3，224，224）
             im_noise_tr = np.tile(im_noise, (opt.batchSize, 1, 1, 1))
             noise_tr = torch.from_numpy(im_noise_tr).type(torch.FloatTensor).cuda(gpulist[0])
@@ -264,7 +289,7 @@ if __name__ == "__main__":
 
             image = image.cuda(gpulist[0])
 
-            ## generate per image perturbation from fixed noise
+            # generate per image perturbation from fixed noise
             if opt.perturbation_type == 'universal':
                 delta_im = netG(noise_tr)
             else:
