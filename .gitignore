@@ -21,4 +21,6 @@ tempt_data_0705/
 tempt_data_0707_only_task1/
 *.png
 .gitignore
-material/models/__pycache__/generators.cpython-38.pyc
+material/models/__pycache__/
+utils/__pycache__/transforms_utils.cpython-38.pyc
+utils/__pycache__/utils.cpython-38.pyc

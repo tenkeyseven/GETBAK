@@ -16,6 +16,13 @@ import backdoor_utils.malicious_data_loader as malicious_data_loader
 from models_structures.VGG import *
 from rich.progress import track
 
+
+import configparser
+config = configparser.ConfigParser()
+config.read('./config/setups.config')
+
+GENERATOR_SAVED_PATH = config['DEFAULT']['GENERATOR_SAVED_PATH']
+
 # 将数据处理成Variable, 如果有GPU, 可以转成cuda形式
 def get_variable(x, useFloat=False):
     x = Variable(x)
@@ -23,11 +30,11 @@ def get_variable(x, useFloat=False):
 
 # TODO configuation 配置文件，后续更新将使用一个统一的配置文件
 # --------------------------------------------------------
-MODEL_TYPE = 'VGG16'
-DATASETS_TYPE = 'CIFAR10'
+MODEL_TYPE = 'RESNET18'
+DATASETS_TYPE = 'IMAGENETTE'
 # -------------------------------------------------------
 # FOOLMODEL could be 'VGG16-CIFAR10', 'RESNET18_IMAGENETTE'
-FOOLMODEL = 'VGG16_CIFAR10' 
+FOOLMODEL = 'RESNET18_IMAGENETTE' 
 # --------------------------------------------------------
 # 攻击者指定的靶向目标
 ATTACK_TARGET = 7
@@ -37,7 +44,8 @@ CLEAN_MODEL_PATH_RESNET18_IMAGENETTE = 'models/resnet18_imagenette_clean.pth'
 # 对模型进行选择
 CLEAN_MODEL_PATH = CLEAN_MODEL_PATH_VGG16_CIFAR10
 # 后门模型保存地址
-BACKDOOR_MODEL_PATH = 'models/vgg16_cifar10_backdoor_520_2326.pth'
+# BACKDOOR_MODEL_PATH = 'models/vgg16_cifar10_backdoor_520_2326.pth'
+BACKDOOR_MODEL_PATH = GENERATOR_SAVED_PATH
 # 投毒比率
 BACKDOOR_RATE = 0.5
 # 投毒数据的 Batch Size
@@ -46,7 +54,7 @@ BATCH_SIZE = 100
 num_epochs = 15
 learning_rate = 0.001
 # 触发器位置
-TRIGGER_PATH = 'share_data/trigger/trigger_cifar10_520.png'
+TRIGGER_PATH = '/home/nas928/ln/GETBAK/data/triggers/trigger_10.png'
 # --------------------------------------------------------
 
 if FOOLMODEL == 'VGG16_CIFAR10':
