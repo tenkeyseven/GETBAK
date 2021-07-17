@@ -94,7 +94,7 @@ for imagename in track(os.listdir(Clean_tatget_data_path),1):
         # 输入生成器模型
         netG_out = netG(trigger_img)
         netG_out = normalize_and_scale(netG_out,mag_in=20,trianing_batch_size=1,gpulist=[0])
-        torchvision.utils.save_image(transform_unNormalize(netG_out),'tt.JPEG')
+        # torchvision.utils.save_image(transform_unNormalize(netG_out),'tt.JPEG')
         # break
 
         # 将输出转化入 cuda

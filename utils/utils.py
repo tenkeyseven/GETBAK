@@ -1,7 +1,7 @@
 import random
 import numpy as np
 
-def normalize_and_scale(delta_im, mode='train', trianing_batch_size=32, testing_batch_size=16, mag_in=20, gpulist=[0], is_imagenette =True):
+def normalize_and_scale(delta_im, mode='train', training_batch_size=32, testing_batch_size=16, mag_in=20, gpulist=[0], is_imagenette =True):
     n_gpu = len(gpulist)
     if is_imagenette:
         model_dimension = 256
@@ -18,7 +18,7 @@ def normalize_and_scale(delta_im, mode='train', trianing_batch_size=32, testing_
 
     # threshold each channel of each image in deltaIm according to inf norm
     # do on a per image basis as the inf norm of each image could be different
-    bs = trianing_batch_size if (mode == 'train') else testing_batch_size
+    bs = training_batch_size if (mode == 'train') else testing_batch_size
     for i in range(bs):
         # do per channel l_inf normalization
         for ci in range(3):

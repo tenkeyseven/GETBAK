@@ -28,7 +28,7 @@ n_gpu = len(gpulist)
 # 添加可选参数
 parser.add_argument('--imagenetTrain', type=str, default='./datasets/imagenette/imagenette2/train_on_7', help='ImageNet train root')
 parser.add_argument('--imagenetVal', type=str, default='./datasets/imagenette/imagenette2/val_on_7', help='ImageNet val root')
-parser.add_argument('--batchSize', type=int, default=1, help='training batch size')
+parser.add_argument('--batchSize', type=int, default=32, help='training batch size')
 parser.add_argument('--testBatchSize', type=int, default=16, help='testing batch size')
 parser.add_argument('--threads', type=int, default=4, help='number of threads for data loader to use')
 parser.add_argument('--ngf', type=int, default=64, help='generator filters in first conv layer')

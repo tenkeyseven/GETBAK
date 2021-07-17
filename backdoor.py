@@ -21,7 +21,9 @@ import configparser
 config = configparser.ConfigParser()
 config.read('./config/setups.config')
 
-GENERATOR_SAVED_PATH = config['DEFAULT']['GENERATOR_SAVED_PATH']
+GENERATOR_SAVED_PATH = config['Generator']['GENERATOR_SAVED_PATH']
+
+Poisoned_target_data_Path = config['MakingPoisonedData']
 
 # 将数据处理成Variable, 如果有GPU, 可以转成cuda形式
 def get_variable(x, useFloat=False):

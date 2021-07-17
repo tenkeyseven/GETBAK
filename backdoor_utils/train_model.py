@@ -13,7 +13,7 @@ from livelossplot import PlotLosses
 import sys
 
 def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, num_epochs=25):
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     since = time.time()
     liveloss = PlotLosses()
     best_model_wts = copy.deepcopy(model.state_dict())
