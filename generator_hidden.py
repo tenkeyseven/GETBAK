@@ -63,7 +63,6 @@ if __name__ == "__main__":
     parser.add_argument('--path_to_U_noise', type=str, default='', help='path to U_input_noise.txt (only needed for universal)')
     parser.add_argument('--explicit_U', type=str, default='', help='Path to a universal perturbation to use')
 
-
     
     config = configparser.ConfigParser()
     config.read('./config/setups.config')
@@ -89,15 +88,6 @@ if __name__ == "__main__":
     best_fooling = 0
     itr_accum = 0
 
-    # make directories
-    # opt.expname = './results/' + opt.expname
-    # if not os.path.exists(opt.expname):
-    #     os.mkdir(opt.expname)
-
-    # if opt.perturbation_type == 'universal':
-    #     if not os.path.exists(opt.expname + '/U_out'):
-    #         os.mkdir(opt.expname + '/U_out')
-
     cudnn.benchmark = True
     torch.cuda.manual_seed(opt.seed)
 
@@ -108,22 +98,6 @@ if __name__ == "__main__":
     gpulist = [0,1]
     n_gpu = len(gpulist)
     console.print('Running with n_gpu: ', n_gpu)
-
-    # if opt.foolmodel == 'vgg16-cifar10':
-    #     model_dimension = 32
-    #     center_crop = 32
-    #     mean_arr = [0.4914, 0.4822, 0.4465]
-    #     stddev_arr = [0.247, 0.243, 0.261]
-    # elif opt.foolmodel == 'incv3':
-    #     model_dimension = 299
-    #     center_crop = 299
-    #     mean_arr = [0.485, 0.456, 0.406]
-    #     stddev_arr = [0.229, 0.224, 0.225]
-    # else:
-    #     model_dimension = 256
-    #     center_crop = 224
-    #     mean_arr = [0.485, 0.456, 0.406]
-    #     stddev_arr = [0.229, 0.224, 0.225]
 
     # Softmax 函数
     softmax_func = torch.nn.Softmax(dim=0)
@@ -149,33 +123,31 @@ if __name__ == "__main__":
     # SMIM 损失
     # @TODO
 
-    # 如果是训练模式，载入训练数据集用于训练
-    if opt.mode == 'train':
-        if opt.foolmodel == 'vgg16-cifar10':
-            # 从torchvision.datasets中加载一些常用数据集
-            train_dataset = torchvision.datasets.CIFAR10(
-            root='./datasets/cifar10/',  # 数据集保存路径
-            train=True,  # 是否作为训练集
-            transform=data_transform,  # 数据如何处理, 可以自己自定义
-            download=False)  # 路径下没有的话, 可以下载
+    if opt.foolmodel == 'vgg16-cifar10':
+        # 从torchvision.datasets中加载一些常用数据集
+        train_dataset = torchvision.datasets.CIFAR10(
+        root='./datasets/cifar10/',  # 数据集保存路径
+        train=True,  # 是否作为训练集
+        transform=data_transform,  # 数据如何处理, 可以自己自定义
+        download=False)  # 路径下没有的话, 可以下载
 
-            test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10/',
-                                train=False,
-                                transform=data_transform)
+        test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10/',
+                            train=False,
+                            transform=data_transform)
 
-            training_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
-                                           batch_size=opt.batchSize,
-                                           shuffle=True)
+        training_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                        batch_size=opt.batchSize,
+                                        shuffle=True)
 
-            testing_data_loader = torch.utils.data.DataLoader(dataset=test_dataset,
-                                          batch_size=opt.batchSize,
-                                          shuffle=False)
-        elif opt.foolmodel == 'resnet18-imagenette':
-            train_set = torchvision.datasets.ImageFolder(root = opt.imagenetTrain, transform = data_transform)
-            training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
+        testing_data_loader = torch.utils.data.DataLoader(dataset=test_dataset,
+                                        batch_size=opt.batchSize,
+                                        shuffle=False)
+    elif opt.foolmodel == 'resnet18-imagenette':
+        train_set = torchvision.datasets.ImageFolder(root = opt.imagenetTrain, transform = data_transform)
+        training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
 
-            test_set = torchvision.datasets.ImageFolder(root = opt.imagenetVal, transform = data_transform)
-            testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=True)
+        test_set = torchvision.datasets.ImageFolder(root = opt.imagenetVal, transform = data_transform)
+        testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=True)
 
     # 载入测试数据
     if opt.foolmodel == 'vgg16-cifar10':
@@ -236,19 +208,6 @@ if __name__ == "__main__":
     # netG = ResnetGenerator(3, 3, opt.ngf, norm_type='batch', act_type='relu', gpu_ids=gpulist)
     netG = RecursiveUnetGenerator(3, 3, num_downs = 4, ngf = opt.ngf, norm_type='batch',
                  act_type='relu', use_dropout=True, gpu_ids=gpulist)
-
-
-    # resume from checkpoint if specified
-    # if opt.checkpoint:
-    #     if os.path.isfile(opt.checkpoint):
-    #         print("=> loading checkpoint '{}'".format(opt.checkpoint))
-    #         netG.load_state_dict(torch.load(opt.checkpoint, map_location=lambda storage, loc: storage))
-    #         print("=> loaded checkpoint '{}'".format(opt.checkpoint))
-    #     else:
-    #         print("=> no checkpoint found at '{}'".format(opt.checkpoint))
-    #         netG.apply(weights_init)
-    # else:
-    #     netG.apply(weights_init)
 
     # setup optimizer
     if opt.optimizer == 'adam':
@@ -350,49 +309,6 @@ if __name__ == "__main__":
 
                 # 输入生成器
                 netG_out = netG(trigger_img_repeat)
-
-            # 生成一个空的，只带触发器的图像 trigger_img
-            # zero_img = np.zeros((224,224,3))
-            # zero_img = transform_toTensor(zero_img)
-            # torchvision.utils.save_image(zero_img, 'tempt_data/zero_img.png')
-
-            # # 生成只带 trigger 的空图像
-            # trigger_unnormalize = transform_unNormalize(trigger)
-            # zero_img_with_trigger = stamp_trigger(zero_img, trigger_unnormalize,trigger_size, random_location=False, is_batch=False)
-            # # print('zero_img_with_trigger shape:',zero_img_with_trigger.shape)
-            # torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger.png')
-
-            # # zero_img_with_trigger = np.reshape(zero_img_with_trigger,(224,224,3))    
-            # zero_img_with_trigger = transform_Normalize(zero_img_with_trigger)
-            # torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger_normalized.png')
-
-            # # print('zero_img_with_trigger shape:',zero_img_with_trigger.shape)
-            # # torchvision.utils.save_image(zero_img_with_trigger, 'tempt_data/zero_img_with_trigger.png')
-
-            # # 生成带具体图像、触发器的图像
-            # trigger_img = stamp_trigger(image, trigger, trigger_size, random_location=False, is_batch=True)
-            # torchvision.utils.save_image(trigger_img, 'tempt_data/trigger_img.png')
-
-            # # 保存 unomalized 后带具体图像、触发器的图像
-            # torchvision.utils.save_image(transform_unNormalize(trigger_img), 'tempt_data/trigger_img_unormalized.png')
-        
-            # # zero_img 重复 repeat 为 zero_img_with_trigger_batch，以及保存查看
-            # zero_img_with_trigger_batch = zero_img_with_trigger.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
-            # torchvision.utils.save_image(zero_img_with_trigger_batch, 'tempt_data/zero_img_with_trigger_batch.png')
-            
-            # zero_img_with_trigger_batch = zero_img_with_trigger_batch.type(torch.FloatTensor).cuda(gpulist[0])       
-
-            # # 将贴上 trigger 的源图像输入生成器 netG，得到输出 netG_out，其为输出的扰动触发器
-            # # trigger_img_repeat = trigger_img.squeeze(0).repeat(opt.batchSize, 1, 1, 1)
-            # # trigger_img_repeat = trigger_img_repeat.type(torch.FloatTensor).cuda(gpulist[0])
-            # trigger_img_repeat = trigger_img.cuda(gpulist[0])
-            # # print('trigger_img_repeat.shape:',trigger_img_repeat.shape)
-            # torchvision.utils.save_image(trigger_img_repeat, 'tempt_data/trigger_img_repeat.png')
-
-            
-            # netG_out = netG(trigger_img_repeat)
-            # netG 输出范围为 -1～1之间
-            # console.print('out_value_range:{} : {}'.format(netG_out.max().item(),netG_out.min().item()))
 
             if itr % 10 == 1:
                 torchvision.utils.save_image(netG_out, 'tempt_data/out_NetG/netG_out{}_{}.png'.format(epoch,itr))
@@ -638,7 +554,7 @@ if __name__ == "__main__":
             # -------------------
             # Total Loss
             
-            loss = task1_loss + task3_loss
+            loss = task3_loss
             # loss = task1_loss + task2_loss + task3_loss
 
             optimizerG.zero_grad()
@@ -764,28 +680,6 @@ if __name__ == "__main__":
                 delta_im[i,ci,:,:] = delta_im[i,ci,:,:].clone() * np.minimum(1.0, mag_in_scaled_c / l_inf_channel.cpu().numpy())
 
         return delta_im
-
-
-    def checkpoint_dict(epoch):
-        netG.eval()
-        global best_fooling
-        if not os.path.exists(opt.expname):
-            os.mkdir(opt.expname)
-
-        task_label = "foolrat" if opt.target == -1 else "top1target"
-
-        net_g_model_out_path = opt.expname + "/netG_model_epoch_{}_".format(epoch) + task_label + "_{}.pth".format(test_fooling_history[epoch-1])
-        if opt.perturbation_type == 'universal':
-            u_out_path = opt.expname + "/U_out/U_epoch_{}_".format(epoch) + task_label + "_{}.pth".format(test_fooling_history[epoch-1])
-        if test_fooling_history[epoch-1] > best_fooling:
-            best_fooling = test_fooling_history[epoch-1]
-            torch.save(netG.state_dict(), net_g_model_out_path)
-            if opt.perturbation_type == 'universal':
-                torch.save(netG(noise_te[0:1]), u_out_path)
-            print("Checkpoint saved to {}".format(net_g_model_out_path))
-        else:
-            print("No improvement:", test_fooling_history[epoch-1], "Best:", best_fooling)
-
 
     def print_history():
         # plot history for training loss

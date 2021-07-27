@@ -1,3 +1,4 @@
+from rich import console
 import torch, torchvision
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +12,8 @@ import matplotlib.pyplot as plt
 import time, os, copy, numpy as np
 from livelossplot import PlotLosses
 import sys
+from rich.console import Console 
+console = Console()
 
 def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, num_epochs=25):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -26,7 +29,7 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
             if phase == 'train':
-                scheduler.step()
+                # scheduler.step()
                 model.train()  # Set model to training mode
             else:
                 model.eval()   # Set model to evaluate mode
@@ -53,6 +56,7 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
+                        scheduler.step()
 
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
