@@ -13,7 +13,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.transforms import transforms
 import random
+# 配置信息
+config = configparser.ConfigParser()
+config.read('./config/setups.config')
 
+CLEAN_MODEL_PATH = config['MakingPoisonedData']['CLEAN_MODEL_PATH_RESNET18_IMAGENETTE']
+Clean_tatget_data_path = config['MakingPoisonedData']['Clean_tatget_data_path']
+Poisoned_target_data_Path = config['MakingPoisonedData']['Poisoned_target_data_Path']
+Poisoned_Portion = float(config['MakingPoisonedData']['Poisoned_Portion'])
+Trigger_Size = int(config['CleanLabelBackdoorBaseline']['Trigger_Size'])
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 console = Console()
@@ -23,7 +31,7 @@ center_crop = 224
 mean_arr = [0.485, 0.456, 0.406]
 stddev_arr = [0.229, 0.224, 0.225]
 
-trigger_size = 50
+trigger_size = Trigger_Size
 Trigger_Size = trigger_size
 
 normalize = transforms.Normalize(mean=mean_arr, std=stddev_arr)
@@ -80,14 +88,15 @@ transform_unNormalize=transforms.Compose([
 ])  
 
 
-# 配置信息
-config = configparser.ConfigParser()
-config.read('./config/setups.config')
-
-CLEAN_MODEL_PATH = config['MakingPoisonedData']['CLEAN_MODEL_PATH_RESNET18_IMAGENETTE']
-Clean_tatget_data_path = config['MakingPoisonedData']['Clean_tatget_data_path']
-Poisoned_target_data_Path = config['MakingPoisonedData']['Poisoned_target_data_Path']
-Poisoned_Portion = float(config['MakingPoisonedData']['Poisoned_Portion'])
+def save_images_for_show(clean, fgsm_img, trigger_img, i):
+    if i < 20:
+        p = fgsm_img - clean
+        p = p + 1
+        p = p / 2
+        # console.print(p.min(), p.max())
+        torchvision.utils.save_image(clean,'/home/nas928/ln/GETBAK/making_poi_data_tempt_output/clean_label_baseline/clean_{}.png'.format(i))
+        torchvision.utils.save_image(p,'/home/nas928/ln/GETBAK/making_poi_data_tempt_output/clean_label_baseline/pertuabtion_{}.png'.format(i))
+        torchvision.utils.save_image(trigger_img,'/home/nas928/ln/GETBAK/making_poi_data_tempt_output/clean_label_baseline/trigger_img_{}.png'.format(i))
 
 
 # 载入干净网络模型(Resnet18)
@@ -123,8 +132,7 @@ def remove_last_poisoned_datasets():
         os.remove(Poisoned_target_data_Path + '/' + imagename)
     console.print('{} images removed'.format(count_remove), style='bold red')
 
-
-def poisoning_datasets(trigger_type='feat_trigger', one_step_FGSM=False):
+def poisoning_datasets(trigger_type='feat_trigger'):
     # 向投毒重训练数据集的靶向类写图片
     count_add = 0
     count_add_clean = 0
@@ -161,6 +169,7 @@ def poisoning_datasets(trigger_type='feat_trigger', one_step_FGSM=False):
             model_ft_clean.eval()
 
             img = img.to(device)
+            clean_img = img.clone()
 
             # 选择靶向类标签为: 这里选择了 7 
             label = torch.LongTensor([7])
@@ -209,6 +218,8 @@ def poisoning_datasets(trigger_type='feat_trigger', one_step_FGSM=False):
             trigger_img = stamp_trigger(img, trigger, trigger_size=Trigger_Size, is_batch = True)
 
             torchvision.utils.save_image(transform_unNormalize(trigger_img),dst)
+
+            save_images_for_show(clean_img,perturbed_data,transform_unNormalize(trigger_img),count_add_poisoned)
 
     console.print('Fooling Rate is {}'.format(fgsm_fooling_image/count_add_poisoned))
 
