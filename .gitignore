@@ -26,3 +26,13 @@ material/models/__pycache__/
 utils/__pycache__/transforms_utils.cpython-38.pyc
 utils/__pycache__/utils.cpython-38.pyc
 MNIST/
+data
+defense_result
+defense_tempt_output
+making_poi_data_tempt_output
+making_poi_data_tempt_output_0805
+share_data
+tempt_data_0731
+test_attack_new_tempt_output
+test_attack_new_tempt_output0805
+test_output
