@@ -44,9 +44,9 @@ Trigger_Size = int(config['CleanLabelBackdoorBaseline']['Trigger_Size'])
 # Training_Batch_Size = int(config['ShowResult']['Training_Batch_Size'])
 # Testing_Batch_Size = int(config['ShowResult']['Testing_Batch_Size'])
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
-gpulist = [0,1]
+gpulist = [1,1]
 ngf = 64
 
 clean_dataset_train_path = Clean_Datasets_Root + '/' + 'train'
@@ -184,7 +184,7 @@ def compare_l_inf(img1, img2, is_0_1=True):
     p = (img2 -img1).abs().max() * 255
     return p
 
-def gen_ours(images, index):
+def gen_ours(images, index, show_num, max_show_num):
     clean_images = images.clone()
     clean_images = clean_images.to(device)
     clean_images_unNomalize = transform_unNormalize(clean_images)
@@ -204,7 +204,8 @@ def gen_ours(images, index):
     for cii in range(3):
         trigger_images[:,cii,:,:] = trigger_images[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
 
-    torchvision.utils.save_image(transform_unNormalize(trigger_images),'/home/nas928/ln/GETBAK/results/show_in_paper/ours_{}.png'.format(index))
+    if show_num < max_show_num:
+        torchvision.utils.save_image(transform_unNormalize(trigger_images),'/home/nas928/ln/GETBAK/results/show_in_paper/ours_{}.png'.format(show_num))
 
     delta_to_0_1 = delta + 1
     delta_to_0_1 = delta_to_0_1 * 0.5
@@ -212,27 +213,31 @@ def gen_ours(images, index):
     # (0 ~ 1)
 
     # 保存delta图像
-    torchvision.utils.save_image(delta_to_0_1, '/home/nas928/ln/GETBAK/results/show_in_paper/delta_{}.png'.format(index))
+    if show_num < max_show_num:
+        torchvision.utils.save_image(delta_to_0_1, '/home/nas928/ln/GETBAK/results/show_in_paper/delta_{}.png'.format(show_num))
     
     return transform_unNormalize(trigger_images)
 
-def gen_random_triggers(images, index):
+def gen_random_triggers(images, index, show_num, max_show_num):
     # images should be 0 ~ 1
     c = np.load('/home/nas928/ln/GETBAK/data/triggers/random_trigger_1.npy')
     c = transform_to_tensor(c)
     c = c.to(device)
 
-    torchvision.utils.save_image(c, '/home/nas928/ln/GETBAK/results/show_in_paper/c_{}.png'.format(index))
-
     # print(c.device)
     # print(images.device)
     trigger_img = images + c
+    if show_num < max_show_num:
+        torchvision.utils.save_image(trigger_img,'/home/nas928/ln/GETBAK/results/show_in_paper/global_random_{}.png'.format(show_num))
 
-    torchvision.utils.save_image(trigger_img,'/home/nas928/ln/GETBAK/results/show_in_paper/global_random_{}.png'.format(index))
+    c += 1
+    c /= 2  
+    if show_num < max_show_num:
+        torchvision.utils.save_image(c, '/home/nas928/ln/GETBAK/results/show_in_paper/c_{}.png'.format(show_num))
 
     return trigger_img.float()
 
-def gen_clean_label_baseline(images, index, type='poison_phase'):
+def gen_clean_label_baseline(images, index, show_num, max_show_num, type='poison_phase'):
     eps = 16 / 255
     if type == 'poison_phase':
 
@@ -279,9 +284,11 @@ def gen_clean_label_baseline(images, index, type='poison_phase'):
 
         trigger_img = stamp_trigger(img, trigger, trigger_size=Trigger_Size, is_batch = True)
 
-        torchvision.utils.save_image(fgsm_p,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_p_{}.png'.format(index))
-        torchvision.utils.save_image(perturbed_data,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_poi_img_{}.png'.format(index))
-        torchvision.utils.save_image(trigger_img,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_trigger_img_{}.png'.format(index))       
+
+        if show_num < max_show_num:
+            torchvision.utils.save_image(fgsm_p,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_p_{}.png'.format(show_num))
+            torchvision.utils.save_image(perturbed_data,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_poi_img_{}.png'.format(show_num))
+            torchvision.utils.save_image(trigger_img,'/home/nas928/ln/GETBAK/results/show_in_paper/CLB_trigger_img_{}.png'.format(show_num))       
 
     return trigger_img 
 
@@ -289,25 +296,29 @@ def main():
             
     console.print('Start to test')
     model_ft_clean.eval()
-    max_num = 2
-    # show_num = 10
+    max_num = 100
+    max_show_num = 5
     index = 0
+    show_num = 0
+
+    results = [0 for i in range(12)]
 
     # with torch.no_grad():
-    for batch_index, (images, labels) in enumerate(dataloader_clean['val']):
-        if not batch_index in range(200,300):
+    for batch_index, (images, labels) in enumerate(track(dataloader_clean['val'],1)):
+        if not batch_index in range(100,1500):
             continue
         if labels.item() != 7:
             continue
 
-        print(labels)
+        # print(labels)
 
         index += 1
+        show_num += 1
         if index > max_num:
             console.print('\nEnd')
             break
 
-        console.print('----------------------')
+        # console.print('----------------------')
 
         # 保存干净图片出来
         clean_images = images.clone()
@@ -317,30 +328,41 @@ def main():
         # 获得用于对比的 clean 图像
         clean = clean_images_unNomalize
 
-        torchvision.utils.save_image(clean, '/home/nas928/ln/GETBAK/results/show_in_paper/clean_{}.png'.format(index))
+        if show_num < max_show_num:
+            torchvision.utils.save_image(clean, '/home/nas928/ln/GETBAK/results/show_in_paper/clean_{}.png'.format(index))
 
         # 获得 ours 方法图片
-        ours = gen_ours(images, index)
+        ours = gen_ours(images, index, show_num, max_show_num)
 
         # 获得 random trigger 图片
-        grd = gen_random_triggers(clean, index)
+        grd = gen_random_triggers(clean, index, show_num, max_show_num)
 
         # 获得 clean_label 的投毒图像
-        clb = gen_clean_label_baseline(clean, index, type='poison_phase')
+        clb = gen_clean_label_baseline(clean, index, show_num, max_show_num, type='poison_phase')
 
         clean_lpips = compare_lpips(clean,clean)
         ours_lpips = compare_lpips(clean,ours)
         grd_lpips = compare_lpips(clean,grd)
         clb_lpips = compare_lpips(clean,clb)
 
-        console.print('\n LPIPS compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_lpips,ours_lpips,grd_lpips,clb_lpips))
+        results[0] += clean_lpips
+        results[1] += ours_lpips
+        results[2] += grd_lpips
+        results[3] += clb_lpips
+
+        # console.print('\n LPIPS compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_lpips,ours_lpips,grd_lpips,clb_lpips))
 
         clean_PSNR = compare_PSNR(clean,clean)
         ours_PSNR = compare_PSNR(clean,ours)
         grd_PSNR = compare_PSNR(clean,grd)
         clb_PSNR = compare_PSNR(clean,clb)
 
-        console.print('\n PSNR compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_PSNR,ours_PSNR,grd_PSNR,clb_PSNR))
+        results[4] += clean_PSNR
+        results[5] += ours_PSNR
+        results[6] += grd_PSNR
+        results[7] += clb_PSNR
+
+        # console.print('\n PSNR compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_PSNR,ours_PSNR,grd_PSNR,clb_PSNR))
 
         
         clean_l_inf = compare_l_inf(clean,clean)
@@ -348,6 +370,21 @@ def main():
         grd_l_inf = compare_l_inf(clean,grd)  
         clb_l_inf = compare_l_inf(clean,clb)
 
-        console.print('\n l_inf compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_l_inf,ours_l_inf,grd_l_inf,clb_l_inf))
+        results[8] += clean_l_inf
+        results[9] += ours_l_inf
+        results[10] += grd_l_inf
+        results[11] += clb_l_inf
+
+        # console.print('\n l_inf compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(clean_l_inf,ours_l_inf,grd_l_inf,clb_l_inf))
+
+
+    console.print('actually calculate on ', index-1)
+    results = np.divide(results, (index-1))
+
+    console.print('\n LPIPS compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(results[0],results[1],results[2],results[3]))
+
+    console.print('\n PSNR compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(results[4],results[5],results[6],results[7]))
+
+    console.print('\n l_inf compare (clean, ours, grd, clb):\n {:.4f} {:.4f} {:.4f} {:.4f}'.format(results[8],results[9],results[10],results[11]))
 
 main()

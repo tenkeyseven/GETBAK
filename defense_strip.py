@@ -1,4 +1,3 @@
-import re
 import torch
 import numpy as np
 from sklearn import metrics
@@ -8,16 +7,17 @@ from rich.progress import track
 import configparser
 import torchvision
 from torch.utils.data import DataLoader
-from utils.transforms_utils import data_transform, transform_unNormalize, trigger_transform, transform_unNormalizeAndToPIL, transform_Normalize
+from utils.transforms_utils import data_transform, transform_unNormalize
 import torch.nn as nn
 from material.models.generators import *
-import os
 import torchvision.models as models
-from utils.utils import stamp_trigger, normalize_and_scale
+from utils.utils import normalize_and_scale
 softmax_func = torch.nn.Softmax(dim=1)
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
+from utils.utils import stamp_trigger, normalize_and_scale
+from utils.transforms_utils import data_transform, transform_unNormalize, trigger_transform, transform_unNormalizeAndToPIL, transform_Normalize
+from PIL import Image
 import gc
 
 # 配置信息
@@ -36,10 +36,11 @@ Clean_Datasets_Root = config['TestingBackdoorModel']['Clean_Datasets_Root']
 CLEAN_MODEL_PATH = config['TestingBackdoorModel']['CLEAN_MODEL_PATH_RESNET18_IMAGENETTE']
 CLEAN_MODEL_FINETUNE_PATH = config['TestingBackdoorModel']['CLEAN_MODEL_FINETUNE_PATH']
 
+Trigger_Size = int(config['CleanLabelBackdoorBaseline']['Trigger_Size'])
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
-gpulist = [0, 1]
+gpulist = [1, 1]
 ngf = 64
 
 clean_dataset_train_path = Clean_Datasets_Root + '/' + 'train'
@@ -188,21 +189,15 @@ def superimpose(_input1, _input2, type, alpha=None):
     return result
 
 
-def detect():
+def detect(lab_type = 'clean_lablel_baseline'):
     clean_entropy = []
     poison_entropy = []
 
-    # loader = dataloader_to_detect
-    # loader = track(loader, 1)
-
-    # for i, data in enumerate(loader):
-    #     _input, _label = data
-    #     poison_input = add_trigger(_input)
-
-    #     clean_entropy.append(check(_input, _label))
-    #     poison_entropy.append(check(poison_input, _label))
-
     loader_m = dataloader_clean['val']
+
+    if lab_type == 'clean_lablel_baseline':
+        trigger = Image.open('./data/triggers/trigger_10.png').convert('RGB')
+        trigger = trigger_transform(trigger)
 
     for batch_index, (images, labels) in enumerate(track(loader_m,1)):
         if batch_index >20:
@@ -218,14 +213,24 @@ def detect():
 
         torchvision.utils.save_image(transform_unNormalize(images_input_netG),'/home/nas928/ln/GETBAK/defense_tempt_output/images_input_netG.png')
 
-        netG_out = netG(images_input_netG)
-        netG_out, delta = normalize_and_scale(netG_out, clean_images_unNomalize)
-        
-        trigger_images = netG_out
+        #----# Our Method
+        if lab_type == 'ours':
 
-        # do clamping per channel
-        for cii in range(3):
-            trigger_images[:,cii,:,:] = trigger_images[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
+            netG_out = netG(images_input_netG)
+            netG_out, delta = normalize_and_scale(netG_out, clean_images_unNomalize)
+            
+            trigger_images = netG_out
+
+            # do clamping per channel
+            for cii in range(3):
+                trigger_images[:,cii,:,:] = trigger_images[:,cii,:,:].clone().clamp(clean_images[:,cii,:,:].min(), clean_images[:,cii,:,:].max())
+        
+        #----# Clean-Label Baseline
+        elif lab_type == 'clean_lablel_baseline':
+            trigger_images = stamp_trigger(images, trigger, trigger_size = Trigger_Size, is_batch = True)
+            trigger_images = trigger_images.to(device)
+
+        torchvision.utils.save_image(transform_unNormalize(trigger_images),'/home/nas928/ln/GETBAK/defense_tempt_output/trigger_images.png')
 
 
         c_e = check(clean_images, labels, loader_m, 'clean')
@@ -243,7 +248,7 @@ def detect():
 
     _dict = {'clean': to_numpy(clean_entropy),
              'poison': to_numpy(poison_entropy)}
-    result_file = './defense_strip.npy'
+    result_file = '/home/nas928/ln/GETBAK/defense_result/strip/defense_strip.npy'
     np.save(result_file, _dict)
 
     entropy_benigh = clean_entropy.detach().numpy()
@@ -251,17 +256,17 @@ def detect():
 
     bins = 30
     plt.figure(figsize=(10,10))
-    plt.hist(entropy_benigh, bins, weights=np.ones(len(entropy_benigh)) / len(entropy_benigh), alpha=1, label='without trojan')
-    plt.hist(entropy_trojan, bins, weights=np.ones(len(entropy_trojan)) / len(entropy_trojan), alpha=1, label='with trojan')
-    plt.legend(loc='upper right', fontsize = 20)
-    plt.ylabel('Probability (%)', fontsize = 20)
-    plt.title('normalized entropy', fontsize = 20)
+    plt.hist(entropy_benigh, bins, weights=np.ones(len(entropy_benigh)) / len(entropy_benigh), alpha=1, label='without trigger')
+    plt.hist(entropy_trojan, bins, weights=np.ones(len(entropy_trojan)) / len(entropy_trojan), alpha=0.90, label='with trigger')
+    plt.legend(loc='upper right', fontsize = 23)
+    plt.ylabel('Probability (%)', fontsize = 26)
+    plt.title('normalized entropy', fontsize = 25)
     plt.tick_params(labelsize=20)
 
     fig1 = plt.gcf()
     plt.show()
     # fig1.savefig('EntropyDNNDist_T2.pdf')# save the fig as pdf file
-    fig1.savefig('EntropyDNNDist_T3.png')# save the fig as pdf file
+    fig1.savefig('/home/nas928/ln/GETBAK/defense_result/strip/results.png')# save the fig as pdf file
 
     console.print('File Saved at : ', result_file)
     console.print('Entropy Clean  Median: ', float(clean_entropy.median()))
@@ -282,4 +287,4 @@ def detect():
     console.print("recall_score:", metrics.recall_score(y_true, y_pred))
     console.print("accuracy_score:", metrics.accuracy_score(y_true, y_pred))
 
-detect()
+detect(lab_type = 'ours')

@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument('--nEpochs', type=int, default=10, help='number of epochs to train for')
     parser.add_argument('--ngf', type=int, default=64, help='generator filters in first conv layer')
     parser.add_argument('--optimizer', type=str, default='adam', help='optimizer: "adam" or "sgd"')
-    parser.add_argument('--lr', type=float, default=0.002, help='Learning Rate. Default=0.002')
+    parser.add_argument('--lr', type=float, default=0.0002, help='Learning Rate. Default=0.002')
     parser.add_argument('--beta1', type=float, default=0.9, help='beta1 for adam. default=0.5')
     parser.add_argument('--threads', type=int, default=4, help='number of threads for data loader to use')
     parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
@@ -438,11 +438,13 @@ if __name__ == "__main__":
 
                 # 提取 原始触发器 的中间特征
                 outputs_ori_trigger, features_ori_trigger = model_ft_clean_finetune_tx(zero_img_with_trigger_batch)
+                # outputs_ori_trigger, features_ori_trigger = model_ft_clean_finetune_tx(ct_img_repeat)
                 for name, f in features_ori_trigger.items():
                     feat_dict_i[name] = f
 
                 # 提取 生成后的触发器 的中间特征
                 outputs_hid_trigger, features_hid_trigger = model_ft_clean_finetune_tx(netG_out)
+                # outputs_hid_trigger, features_hid_trigger = model_ft_clean_finetune_tx(recons)
                 for name, f in features_hid_trigger.items():
                     feat_dict_j[name] = f
 
@@ -554,7 +556,7 @@ if __name__ == "__main__":
             # -------------------
             # Total Loss
             
-            loss = task3_loss
+            loss =  task1_loss
             # loss = task1_loss + task2_loss + task3_loss
 
             optimizerG.zero_grad()
@@ -714,7 +716,7 @@ if __name__ == "__main__":
 
             (loss,task1_loss,task2_loss,task3_loss), netG_out_return = train(epoch)
 
-            # test(netG_out_return)
+            test(netG_out_return)
 
             # 找到一个优解
             if task1_loss < 0.5 and task3_loss < 0.01:

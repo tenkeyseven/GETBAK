@@ -42,7 +42,7 @@ data_transform_without_normalize = transforms.Compose([
     transforms.ToTensor()
 ])
 
-
+ 
 trigger_transform = transforms.Compose([
     transforms.Resize((trigger_size, trigger_size)),
     transforms.ToTensor(),

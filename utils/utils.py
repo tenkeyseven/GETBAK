@@ -6,8 +6,16 @@ import cv2
 from torch.nn.functional import normalize
 import torchvision
 import lpips
-from utils.transforms_utils import transform_unNormalize
+from utils.transforms_utils import transform_unNormalize, transform_Normalize
 from rich.console import Console
+import configparser 
+
+config = configparser.ConfigParser()
+config.read('./config/setups.config')
+
+upper = float(config['Generator']['upper'])
+lower = float(config['Generator']['lower'])
+
 
 console = Console()
 
@@ -16,32 +24,52 @@ def save_image_numpy(img, fname):
     img = img[: , :, ::-1]
     cv2.imwrite(fname, np.uint8(255 * img), [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
-def normalize_and_scale(delta_im, mode='train', training_batch_size=32, testing_batch_size=16, mag_in=20, gpulist=[0], is_imagenette =True):
-    n_gpu = len(gpulist)
+def normalize_and_scale(netG_out, clean_imgaes_unormalized, mode='train', training_batch_size=32, testing_batch_size=16, mag_in=20, gpulist=[0], is_imagenette =True):
+
+    # n_gpu = len(gpulist)
     if is_imagenette:
         model_dimension = 256
         center_crop = 224
         mean_arr = [0.485, 0.456, 0.406]
         stddev_arr = [0.229, 0.224, 0.225]
 
-    delta_im = delta_im + 1 # now 0..2
-    delta_im = delta_im * 0.5 # now 0..1
+    netG_out = netG_out + 1 # now 0..2
+    netG_out = netG_out * 0.5 # now 0..1
+
+    # console.print(netG_out.min(), netG_out.max())
+    # (0 ~ 1)
+
+    delta = torch.sub(netG_out.clone(), clean_imgaes_unormalized.clone())
+    # console.print(delta.min(), delta.max())ß
+    # (-1 ~ 1)
+
+    # 0806 asr 99.99 
+    # delta = torch.clamp(delta, -30/255, 30/255)
+    delta = torch.clamp(delta, lower/255, upper/255)
+
+    netG_out = torch.add(delta.clone(), clean_imgaes_unormalized.clone())
+    # console.print(netG_out.min(), netG_out.max())
+    # around (0 ~ 1)
+
+    torchvision.utils.save_image(netG_out, 't1.png')
+
 
     # normalize image color channels
     for c in range(3):
-        delta_im[:,c,:,:] = (delta_im[:,c,:,:].clone() - mean_arr[c]) / stddev_arr[c]
+        netG_out[:,c,:,:] = (netG_out[:,c,:,:].clone() - mean_arr[c]) / stddev_arr[c]
 
-    # threshold each channel of each image in deltaIm according to inf norm
-    # do on a per image basis as the inf norm of each image could be different
-    bs = training_batch_size if (mode == 'train') else testing_batch_size
-    for i in range(bs):
-        # do per channel l_inf normalization
-        for ci in range(3):
-            l_inf_channel = delta_im[i,ci,:,:].detach().abs().max()
-            mag_in_scaled_c = mag_in/(255.0*stddev_arr[ci])
-            gpu_id = gpulist[1] if n_gpu > 1 else gpulist[0]
-            delta_im[i,ci,:,:] = delta_im[i,ci,:,:].clone() * np.minimum(1.0, mag_in_scaled_c / l_inf_channel.cpu().numpy())
-    return delta_im
+    # # threshold each channel of each image in deltaIm according to inf norm
+    # # do on a per image basis as the inf norm of each image could be different
+    # bs = training_batch_size if (mode == 'train') else testing_batch_size
+    # for i in range(bs):
+    #     # do per channel l_inf normalization
+    #     for ci in range(3):
+    #         l_inf_channel = netG_out[i,ci,:,:].detach().abs().max()
+    #         mag_in_scaled_c = mag_in/(255.0*stddev_arr[ci])
+    #         # gpu_id = gpulist[1] if n_gpu > 1 else gpulist[0]
+    #         netG_out[i,ci,:,:] = netG_out[i,ci,:,:].clone() * np.minimum(1.0, mag_in_scaled_c / l_inf_channel.cpu().numpy())
+
+    return netG_out, delta
 
 def visual_constrain(loss_fn, delta_im, clean_img, metrix='lpips',mterix_cons_value=0.5, data_batch_size=32, mag_in=20, gpulist=[0],data_type ='imagenet'):
     # lpips 要求在衡量两张图像的范围在-1～1之间之内

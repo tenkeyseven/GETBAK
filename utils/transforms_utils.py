@@ -5,7 +5,7 @@ import configparser
 config = configparser.ConfigParser()
 config.read('./config/setups.config')
 
-Trigger_Size = int(config['Generator']['Trigger_Size'])
+Trigger_Size = int(config['CleanLabelBackdoorBaseline']['Trigger_Size'])
 
 model_dimension = 224
 center_crop = 224
@@ -22,6 +22,17 @@ data_transform = transforms.Compose([
     transforms.ToTensor(),
     normalize,
 ])
+
+data_augmentation_transform = transforms.Compose([
+    transforms.Resize(224),
+    transforms.CenterCrop(224),
+    transforms.RandomRotation(degrees=[30,90]),
+    transforms.RandomResizedCrop(size=[224,224],scale=[0.5,1.0]),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.ToTensor(),
+    normalize,
+])
+
 
 data_transform_without_normalize = transforms.Compose([
     transforms.Resize(model_dimension),

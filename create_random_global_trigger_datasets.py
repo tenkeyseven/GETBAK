@@ -22,7 +22,7 @@ Clean_tatget_data_path = config['MakingPoisonedData']['Clean_tatget_data_path']
 Poisoned_target_data_Path = config['MakingPoisonedData']['Poisoned_target_data_Path']
 Poisoned_Portion = float(config['MakingPoisonedData']['Poisoned_Portion'])
 Trigger_Size = int(config['CleanLabelBackdoorBaseline']['Trigger_Size'])
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 console = Console()
 

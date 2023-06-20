@@ -25,3 +25,4 @@ tempt_data_0707_only_task1/
 material/models/__pycache__/
 utils/__pycache__/transforms_utils.cpython-38.pyc
 utils/__pycache__/utils.cpython-38.pyc
+MNIST/
